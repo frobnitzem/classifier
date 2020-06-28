@@ -90,7 +90,9 @@ def calc_Qxy(NLj, NL, NRj, NR, N, K):
     return lp + Ginf(NL, NL+NR) - np.log(N*(N+K))
 
 # Calculate the log-probability of generating this
-# particular L,R split for ea. j
+# particular L,R split.  Any j could be used,
+# so we need the sum.
+# FIXME: reconsider prob. of NL,NR == 0 or of sum_j Q_{kj} vs. sum_{kj} Q_{kj}
 def calc_Qgen(NLj, NL, NRj, NR):
     M = len(NLj)
     assert M == len(NRj)
@@ -101,10 +103,10 @@ def calc_Qgen(NLj, NL, NRj, NR):
           + Ginf(NL, NK)
     # Generation prob. is proportional to this factor:
     #   - np.log((Nk+1)*(N-Nk+1))
-    # so we omit it here.
+    # so we omit it here, since it cancelled.
 
     lp  = gen.max() # log( sum(exp(gen)) )
-    lp += np.log( np.sum(np.exp(gen-lp)) )
+    lp += np.log( np.sum(np.exp(gen-lp)) ) # in [0, log(M)]
     return lp
 
 # K -- corresponds to before split
@@ -114,7 +116,7 @@ def split_lp(NLj, NL, NRj, NR, N, K, split_freq, Qsum):
 
     lp = np.log(pacc) - calc_Qgen(NLj, NL, NRj, NR)
     lp += calc_Qxy(NLj, NL, NRj, NR, N, K)
-    print("%e %e %e %e"%(np.log(pacc), calc_Qgen(NLj, NL, NRj, NR), calc_Qxy(NLj, NL, NRj, NR, N, K), lp))
+    #print("%e %e %e %e"%(np.log(pacc), calc_Qgen(NLj, NL, NRj, NR), calc_Qxy(NLj, NL, NRj, NR, N, K), lp))
     return lp
 
 # K -- corresponds to before split

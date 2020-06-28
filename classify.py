@@ -202,6 +202,7 @@ class BBMr:
                            self.Mj[v], self.Nk[v],
                            self.S, self.K-1, split_freq, Qsum):
             return False
+        print("Combined categories %d and %d"%(u,v))
 
         # Divide into 4 logical categories:
         # ----                    ----
@@ -262,6 +263,8 @@ class BBMr:
         if not accept_split(NLj, NL, NRj, NR,
                             self.S, self.K, split_freq, Qsum):
             return False
+
+        print("Split %d on %d"%(k,j))
 
         L = x[z == False] # these copy x
         R = x[z]
@@ -352,21 +355,25 @@ def sample(B, x, Niter):
 def main(argv):
     x = load_features(argv[1])
 
-    #B = bootstrap(x, 100)
-    Nk = cat_rec(x, len(x)*0.4)
-    Nk = np.array(Nk)
-    print(Nk)
-    BBM = BBMr(x, Nk)
-    print(BBM.Mj)
-    np.save("categories.npy", Nk.astype(float) / np.sum(Nk))
-    np.save("features.npy", BBM.Mj.astype(float) / Nk[:,newaxis])
-    B = BBM.sampleBernoulliMixture()
+    BBM = BBMr(x)
+    acc = 0
+    for i in range(10000):
+        BBM.recategorize()
+        acc += BBM.morph()
 
-    #B, BBM = sample(B, x, 200)
-    P = B.categorize(x)
+    print("%d of %d moves accepted"%(acc,i+1))
     print(BBM.Nk)
-    print(B.p)
-    #plot(x, N, P)
+    print(BBM.Mj)
+
+    np.save("members.npy", BBM.Nk)
+    np.save("features.npy", BBM.Mj.astype(float) / Nk[:,newaxis])
+
+    B = BBM.sampleBernoulliMixture()
+    del BBM
+
+    x = load_features(argv[1])
+    z = B.classify(x)
+    np.save("categories.npy", z)
 
 if __name__=="__main__":
     import sys
