@@ -202,7 +202,7 @@ class BBMr:
                            self.Mj[v], self.Nk[v],
                            self.S, self.K-1, split_freq, Qsum):
             return False
-        print("Combined categories %d and %d"%(u,v))
+        print("Combined categories %d and %d - %d"%(u,v,self.K-1))
 
         # Divide into 4 logical categories:
         # ----                    ----
@@ -269,7 +269,7 @@ class BBMr:
                             self.S, self.K, split_freq, Qsum):
             return False
 
-        print("Split %d on %d"%(k,j))
+        print("Split %d on %d - %d"%(k,j, self.K+1))
 
         L = x[z == False] # these copy x
         R = x[z]
@@ -362,16 +362,21 @@ def main(argv):
 
     BBM = BBMr(x)
     acc = 0
-    for i in range(10000):
+    for i in range(10*1000):
         BBM.recategorize()
         acc += BBM.morph()
+
+        if (i+1)%1000 == 0:
+            print("Saving...")
+            np.save("members.npy", BBM.Nk)
+            np.save("features.npy", BBM.Mj.astype(float) / BBM.Nk[:,newaxis])
 
     print("%d of %d moves accepted"%(acc,i+1))
     print(BBM.Nk)
     print(BBM.Mj)
 
     np.save("members.npy", BBM.Nk)
-    np.save("features.npy", BBM.Mj.astype(float) / Nk[:,newaxis])
+    np.save("features.npy", BBM.Mj.astype(float) / BBM.Nk[:,newaxis])
 
     B = BBM.sampleBernoulliMixture()
     del BBM

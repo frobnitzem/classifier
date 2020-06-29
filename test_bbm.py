@@ -63,13 +63,13 @@ def test_combine():
     assert np.allclose(BBM.x[Nk[0]:Nk[0]+Nk[2]], x[-Nk[2]:])
     assert np.allclose(BBM.x[-Nk[1]:], x[Nk[0]:-Nk[2]])
 
-def test_sample(x):
+def test_sample(x, samples=100):
     y = dist_features(x)
     x = compress_features(y)
 
     BBM = BBMr(x.copy())
     acc = 0
-    for i in range(100):
+    for i in range(samples):
         BBM.recategorize()
         acc += BBM.morph()
 
@@ -138,7 +138,7 @@ def test_bbm():
 if __name__=="__main__":
     #test_features()
     #x = gen_chomp(100, 4, 0.2)
-    #x = gen_heli(100, 4, 0.2)
-    #test_sample(x)
-    test_combine()
+    x = gen_heli(100, 4, 0.2)
+    test_sample(x, 1000)
+    #test_combine()
 
