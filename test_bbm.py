@@ -40,6 +40,29 @@ def dist_features(x, cut=2.0):
 
     return y
 
+def test_combine():
+    B = BernoulliMixture(np.array([ [ 0.997,  0.1, 0.3,  0.04, 0.1,   0.1],
+                                    [ 0.5,    0.0, 0.1,  0.02, 0.991, 0.8],
+                                    [ 0.997,  0.1, 0.3,  0.04, 0.1,   0.1] ]),
+                         np.ones(3)/3.0)
+    Nk = np.array([3,2,5])
+    x = B.sample(Nk)
+    BBM = BBMr(x.copy(), Nk)
+    #print(x)
+    #print(BBM.Nk)
+    #print(BBM.Mj)
+    Mj = [BBM.Mj[0]+BBM.Mj[2], BBM.Mj[1].copy()]
+    while not BBM.combine(0, 2, 0.9, 1.0):
+        pass
+    #print(BBM.x)
+    #print(BBM.Nk)
+    #print(BBM.Mj)
+    assert np.allclose(np.array([Nk[0]+Nk[2],Nk[1]]), BBM.Nk)
+    assert np.allclose(Mj, BBM.Mj)
+    assert np.allclose(BBM.x[:Nk[0]],  x[:Nk[0]])
+    assert np.allclose(BBM.x[Nk[0]:Nk[0]+Nk[2]], x[-Nk[2]:])
+    assert np.allclose(BBM.x[-Nk[1]:], x[Nk[0]:-Nk[2]])
+
 def test_sample(x):
     y = dist_features(x)
     x = compress_features(y)
@@ -115,6 +138,7 @@ def test_bbm():
 if __name__=="__main__":
     #test_features()
     #x = gen_chomp(100, 4, 0.2)
-    x = gen_heli(100, 4, 0.2)
-    test_sample(x)
+    #x = gen_heli(100, 4, 0.2)
+    #test_sample(x)
+    test_combine()
 

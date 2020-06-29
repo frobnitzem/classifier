@@ -229,6 +229,11 @@ class BBMr:
             nl = v-u-1 # number of categories between u,v
             self.x[end2[u+1]:end2[u+1+nl]] = tmp[:end[v-1]]
 
+            # swap Mj counts
+            tmp = self.Mj[v].copy()
+            self.Mj[v] = self.Mj[u+1]
+            self.Mj[u+1] = tmp
+
             self.Nk = np.array(Nk)
             v = u+1
 
