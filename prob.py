@@ -4,6 +4,7 @@ import numpy as np
 newaxis = np.newaxis
 rand = np.random.default_rng() # np.random.Generator instance
 uniform = rand.random # used for CPU-uniform random numbers
+np.seterr(under='ignore')
 
 from scipy.special import gammaln
 
@@ -105,7 +106,10 @@ def calc_Qgen(NLj, NL, NRj, NR):
     #   - np.log((Nk+1)*(N-Nk+1))
     # so we omit it here, since it cancelled.
 
-    lp  = gen.max() # log( sum(exp(gen)) )
+    lp = gen.max() # log( sum(exp(gen)) )
+    #if np.isinf(lp):
+    #    raise FloatingPointError
+
     lp += np.log( np.sum(np.exp(gen-lp)) ) # in [0, log(M)]
     return lp
 
@@ -145,7 +149,7 @@ def calc_Qk(x, Mk=None, alpha=0.9):
     ans = []
     for i in range(0, x.shape[1], blksz):
         sl = slice(i, min(i+blksz, x.shape[1]))
-        y = x[:,sl].transpose().astype(np.uint32)
+        y = x[:,sl].transpose().astype(np.uint64)
         Mkj = np.dot(y, x)
 
         NR = Mk[sl,newaxis]

@@ -259,11 +259,12 @@ class BBMr:
         q = uniform()
         pR = p*x[:,j] + q*(1-x[:,j]) # p or q, depending on bit j
         z = rand.random() < pR # sub-categorization
+        z = z.astype(np.uint64)
 
         NR = np.sum(z)
         NL = len(x) - NR
         NRj = np.dot(z, x)
-        NLj = self.Mj[k] - NRj
+        NLj = self.Mj[k] - NRj # dot(1-z, x) = Mj[k]-NRj
 
         if not accept_split(NLj, NL, NRj, NR,
                             self.S, self.K, split_freq, Qsum):
@@ -271,8 +272,8 @@ class BBMr:
 
         print("Split %d on %d - %d"%(k,j, self.K+1))
 
-        L = x[z == False] # these copy x
-        R = x[z]
+        L = x[z == 0] # these copy x
+        R = x[z == 1]
         x[:len(L)] = L
         x[len(L):] = R
 
