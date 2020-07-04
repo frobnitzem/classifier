@@ -258,7 +258,7 @@ class BBMr:
         p = uniform()
         q = uniform()
         pR = p*x[:,j] + q*(1-x[:,j]) # p or q, depending on bit j
-        z = rand.random() < pR # sub-categorization
+        z = rand.random(pR.shape) < pR # sub-categorization
         z = z.astype(np.uint64)
 
         NR = np.sum(z)
