@@ -86,8 +86,7 @@ def calc_Qxy(NLj, NL, NRj, NR, N, K):
     M = len(NLj)
     assert M == len(NRj)
 
-    lp = np.sum( Ginf(NLj, NL, 2) + Ginf(NRj, NR, 2) \
-                - Ginf(NLj+NRj, NL+NR, 2) )
+    lp = Srel(NLj, NL, NRj, NR)
     return lp + Ginf(NL, NL+NR) - np.log(N*(N+K))
 
 # Calculate the log-probability of generating this
@@ -167,4 +166,19 @@ def calc_Qk(x, Mk=None, alpha=0.9):
 
 def Ginf(a, b, n2=1):
     return gammaln(a+1)+gammaln(b-a+1)-gammaln(b+n2)
+
+def Srel(NLj, NL, NRj, NR):
+    #return np.sum( Ginf(NLj, NL, 2) + Ginf(NRj, NR, 2) \
+    #            - Ginf(NLj+NRj, NL+NR, 2) )
+    return np.sum( Sinf(NLj, NL, 2) + Sinf(NRj, NR, 2) \
+                 - Sinf(NLj+NRj, NL+NR, 2) )
+
+# can be a replacement used to make sampling insensitive to M
+def Sinf(a, b, n2=1):
+    m = (a!=b)*(a!=0) == False # highlight problem areas
+    f = a.astype(float)/b
+    f[m] = 0.5
+    S = f*np.log(f) + (1.0-f)*np.log(1.0-f)
+    S[m] = 0.0
+    return b*S
 

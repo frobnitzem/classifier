@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
 from prob import *
+from pathlib import Path
 
 #import cupy as cp
 #rand = cp.random
 
-cat_penalty = 10.0 # log-probability cost per add'l category
+#cat_penalty = 10.0 # log-probability cost per add'l category
+cat_penalty = 0.0
 
 # Mixture of independent multivariate Bernoulli distributions.
 class BernoulliMixture:
@@ -18,25 +20,57 @@ class BernoulliMixture:
         self.p = p
         self.c = c
 
-    def prior(self, verb=False):
+    def logprior(self, verb=False):
         # Calculate a prior probability over categories from a
         # matrix of Bhattacharyya distances
         p = self.p
-        pd = np.prod( np.sqrt(p[:,newaxis,:]*p[newaxis,:,:])
+        B = np.prod( np.sqrt(p[:,newaxis,:]*p[newaxis,:,:])
                     + np.sqrt((1-p)[:,newaxis,:]*(1-p)[newaxis,:,:]),
                     2)
         if verb:
-            print(pd)
-        pd -= np.identity(self.K)
+            print(B)
+        B -= np.identity(self.K)
         # All K choose 2 categories differ:
-        return np.sqrt(np.prod(1-pd))
+        return 0.5*np.log(1-B).sum()
+
+    def d_logprior(self):
+        p = self.p
+        dlp = np.zeros((self.K,self.K,self.M))
+        pd  = np.sqrt(p[:,newaxis,:]*p[newaxis,:,:]) \
+                    + np.sqrt((1-p)[:,newaxis,:]*(1-p)[newaxis,:,:])
+        for j in range(self.M):
+            u = pd[:,:,j].copy()
+            pd[:,:,j] = np.sqrt(p[newaxis,:,j]/(1e-10*(p[:,j]<1e-10)+p[:,j])[:,newaxis]) \
+                        - np.sqrt((1-p[:,j])[newaxis,:]/(1+1e-10*(p[:,j]+1e-10>1)-p[:,j])[:,newaxis])
+            dlp[:,:,j] = np.prod(pd, 2)
+            pd[:,:,j] = u
+
+        B = np.prod(pd, 2)
+        B -= np.identity(self.K)
+        dlp /= 1.0-B[:,:,newaxis]
+        # All K choose 2 categories differ:
+        return -0.5*np.sum(dlp, 1)
 
     # Log-likelihood of a sample, x, given this model
     def likelihood(self, x):
         P = np.dot(np.prod( self.p*x[:,newaxis,:] + (1-self.p)*(1-x[:,newaxis,:]) , 2 ), self.c)
-        lP = np.sum(np.log(P)) + np.log(self.prior()) - cat_penalty*self.K
+        lP = np.sum(np.log(P)) + self.logprior() - cat_penalty*self.K
                # - np.log(self.p).sum() - np.log(1 - self.p).sum() - np.dot(self.c, np.log(self.c))
         return lP
+
+    # derivative of log-likelihood of a sample, x, given this model
+    def d_like(self, x):
+        dlP = self.d_logprior()
+        P1 = self.p*x[:,newaxis,:] + (1-self.p)*(1-x[:,newaxis,:]) # N,K,M
+        P2 = np.prod(P1, 2) # N,K
+        D  = 1./np.dot(P2, self.c) # N
+        dlC = np.dot(D, P2)
+        for j in range(self.M):
+            u = P1[:,:,j].copy()
+            P1[:,:,j] = 2*x[:,newaxis,j] - 1
+            dlP[:,j] += self.c * np.dot(D, np.prod(P1, 2))
+            P1[:,:,j] = u
+        return dlP, dlC
 
     def sample(self, N):
         # N : int^K
@@ -64,7 +98,9 @@ class BernoulliMixture:
         P = self.categorize(x)
         return P.argmax(1) # Max-likelihood category
 
-    # TODO: calculate the maximum likelihood p
+    def maximize(self):
+        # TODO: implement mapping p1 = exp(x1)/(1+exp(x1)+exp(x2)), etc.
+        pass
 
     # pull a category sample
     def sample_k(self, x):
@@ -74,8 +110,74 @@ class BernoulliMixture:
         y = rand.random(S)[:,newaxis] > P # [0,1)
         return y.sum(1)
 
+class Category:
+    def __init__(self, Mj=None, N=None, M=None):
+        if Mj is None:
+            assert M is not None
+            assert N is None
+            self.Mj = np.zeros(M, np.int)
+            self.N = 0
+        else:
+            assert N is not None
+            self.Mj = np.array(Mj, np.int)
+            self.N = N
 
-# Old attempt at adding elements to categories sequentially
+    def append(self, x):
+        self.Mj += x
+        self.N += 1
+    def concat(self, x):
+        self.Mj += x.sum(0)
+        self.N += len(x)
+
+    def __add__(L, R):
+        return Category(L.Mj+R.Mj, L.N+R.N)
+
+    def ldist(L, R, N=None, K=None): # log(P[different cat] / P[same cat])
+        if N is None:
+            N = L.N+R.N
+        if K is None:
+            K = 1
+        return calc_Qxy(L.Mj, L.N, R.Mj, R.N, N, K)
+
+def hamming(x):
+    N = x.shape[0]
+
+    chunk = 128
+    H = np.zeros((N,N), np.int)
+    for i in range(0, N, chunk):
+        j = min(i+chunk, N)
+        H[i:j] = np.sum(x[i:j,newaxis,:]^x[newaxis,:,:], 2)
+
+    return H
+
+# add samples to nearest clusters in serial order
+# -473 to -343.7454308856099
+def cluster(x, max_clusters, lrat = -400.0):
+    N = x.shape[0]
+    #M = x.shape[1]
+    lst = np.arange(N)
+    for i in range(N-1): # random addition order
+        j = int(uniform()*(len(x)-i))
+        lst[i], lst[j] = lst[j], lst[i]
+
+    z = np.zeros(N, np.int)
+    clusters = [Category(x[0], 1)]
+    K = 1
+    S = 1
+    for i in lst[1:]:
+        S += 1
+        u = Category(x[i], 1)
+        dst = np.array([c.ldist(u, S, K) for c in clusters])
+        v = dst.argmin() # closest category
+        if K < max_clusters and dst[v] > lrat:
+            z[i] = len(clusters)
+            clusters.append(u)
+            K += 1
+        else:
+            z[i] = v
+            clusters[v].append(x[i])
+    return z
+
 class BBMs:
     def __init__(self, x, Nk, min_lk=0.9):
         S = x.shape[0]
@@ -141,7 +243,7 @@ class BBMr:
         while True:
             B = BernoulliMixture(randBeta(self.Mj+1, self.Nk[:,newaxis]-self.Mj+1), rand.dirichlet(self.Nk+1))
             #B = BernoulliMixture(randBeta(self.Mj+1, self.Nk[:,newaxis]-self.Mj+1), rand.dirichlet(self.Nk+0.01*self.S))
-            if rand.uniform() < B.prior():
+            if rand.uniform() < np.exp(B.logprior()):
                 break
             rej += 1
             if rej == 10:
@@ -259,7 +361,7 @@ class BBMr:
         q = uniform()
         pR = p*x[:,j] + q*(1-x[:,j]) # p or q, depending on bit j
         z = rand.random(pR.shape) < pR # sub-categorization
-        z = z.astype(np.uint64)
+        z = z.astype(np.int)
 
         NR = np.sum(z)
         NL = len(x) - NR
@@ -291,11 +393,6 @@ class BBMr:
             #Q[k] = calc_Qk(x, self.Mj[k])
         Q = (self.Mj+1) * (self.Nk[:,newaxis]-self.Mj+1)
         return Q
-
-    # Calculate the log-probability of generating this particular L,R split
-    # for this particular k,j
-    def calc_Qgen_j(self, x, y, NL=None, NR=None):
-        return 1
 
 def plot(x, Nk, P):
     K = P.shape[1]
@@ -353,38 +450,54 @@ def sample(B, x, Niter):
         cat = B.classify(x)
         BBM = mk_BBMr(x, cat)
         B = BBM.sampleBernoulliMixture()
-    print(B.prior(True)) # inter-category distances
+    print(B.logprior(True)) # inter-category distances
     print(BBM.Mj)
 
     return B, BBM
 
 def main(argv):
-    x = load_features(argv[1])
+    best = [] # best likelihood at each n
 
+    x = load_features(argv[1])
+    #z = cluster(x, 10)
+    #print("Created %d clusters for %d data points."%(z.max()+1, len(x)))
+
+    #BBM = mk_BBMr(x, z)
     BBM = BBMr(x)
     acc = 0
     for i in range(10*1000):
-        BBM.recategorize()
+        #BBM.recategorize()
+        B = BBM.sampleBernoulliMixture()
+        prob = B.likelihood(BBM.x)
+
+        z = B.classify(BBM.x)
+        y, Nk = reshuffle(BBM.x, z)
+        BBM.x[:] = y
+        BBM.recompute(Nk)
+        if len(best) < B.K or prob > best[B.K-1]:
+            if len(best) < B.K:
+                best.append(0)
+            best[B.K-1] = prob
+            print("New best likelihood: %e"%prob)
+            print("Members: %s"%B.c)
+            out = Path("sz%d"%B.K)
+            out.mkdir(exist_ok=True)
+            with open(out / "info.txt", "w") as f:
+                f.write("# log-likelihood = %e\n"%prob
+                        + '\n'.join("%2d %d"%(i,n) for i,n in enumerate(Nk))
+                        + '\n')
+            np.save(out / "features.npy", B.p)
+            np.save(out / "members.npy", B.c)
+
         acc += BBM.morph()
 
         if (i+1)%1000 == 0:
-            print("Saving...")
-            np.save("members.npy", BBM.Nk)
-            np.save("features.npy", BBM.Mj.astype(float) / BBM.Nk[:,newaxis])
+            print("Sample %d."%(i+1))
 
     print("%d of %d moves accepted"%(acc,i+1))
     print(BBM.Nk)
     print(BBM.Mj)
-
-    np.save("members.npy", BBM.Nk)
-    np.save("features.npy", BBM.Mj.astype(float) / BBM.Nk[:,newaxis])
-
-    B = BBM.sampleBernoulliMixture()
     del BBM
-
-    x = load_features(argv[1])
-    z = B.classify(x)
-    np.save("categories.npy", z)
 
 if __name__=="__main__":
     import sys
