@@ -4,7 +4,7 @@ import numpy as np
 newaxis = np.newaxis
 rand = np.random.default_rng() # np.random.Generator instance
 uniform = rand.random # used for CPU-uniform random numbers
-np.seterr(under='ignore')
+np.seterr(under='ignore') # exp(-800) == 0 is OK
 
 from scipy.special import gammaln
 
@@ -13,18 +13,20 @@ def compress_features(x, verb=True):
     zeros = Mi == 0
     ones  = Mi == len(x)
     if verb:
-        print("%d are always zero and %d are always one"%(np.sum(zeros), np.sum(ones)))
+        print("%d all-zero and %d all-one features"%(np.sum(zeros), np.sum(ones)))
     ones += zeros
     ind = [ i for i in range(x.shape[1]) if not ones[i] ]
     if verb:
         print(Mi[ind])
-    return x[:,ind] # truncate feature space to the interesting subset
+    return np.array(ind), x[:,ind] # truncate feature space to the interesting subset
 
-def load_features(name):
+def load_features(name, ind=None):
     x = np.load(name)[::10]
     x = np.unpackbits( x ).reshape( (len(x),-1) )
     print("Input is %s samples x %s features" % x.shape)
-    return compress_features(x)
+    if ind is None:
+        return compress_features(x)
+    return ind, x[:,ind]
 
 def choose(p):
     sh = p.shape

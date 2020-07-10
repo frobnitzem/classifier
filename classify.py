@@ -458,7 +458,9 @@ def sample(B, x, Niter):
 def main(argv):
     best = [] # best likelihood at each n
 
-    x = load_features(argv[1])
+    ind, x = load_features(argv[1])
+    np.save("indices.npy", ind)
+
     #z = cluster(x, 10)
     #print("Created %d clusters for %d data points."%(z.max()+1, len(x)))
 
