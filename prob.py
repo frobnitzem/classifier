@@ -1,5 +1,7 @@
 # Helper function for probability-related concerns
 
+eta = 1
+
 import numpy as np
 newaxis = np.newaxis
 rand = np.random.default_rng() # np.random.Generator instance
@@ -82,14 +84,21 @@ def split_row(M, k, a, b):
     A[k+2:] = M[k+1:]
     return A
 
+def cat_prior(N,alpha,M,K,mask=True):
+    #eta = alpha - M
+    #return mask*gammaln(N + alpha*K) - gammaln(N + eta*K)
+    return gammaln(alpha*K)-K*gammaln(alpha) - gammaln(N + alpha*K)
+
 # Calculate the log-likelihood for splitting
 # a category into L and R
 def calc_Qxy(NLj, NL, NRj, NR, N, K):
     M = len(NLj)
     assert M == len(NRj)
 
-    lp = Srel(NLj, NL, NRj, NR)
-    return lp + Ginf(NL, NL+NR) - np.log(N*(N+K))
+    lp = np.sum( Ginf(NLj, NL, 2) + Ginf(NRj, NR, 2) \
+                - Ginf(NLj+NRj, NL+NR, 2) )
+    lp += cat_prior(N,M+eta,M,K+1,False) - cat_prior(N,M+eta,M,K,False)
+    return lp + gammaln(NL+M+1) + gammaln(NR+M+1) - gammaln(NL+NR+M+1)
 
 # Calculate the log-probability of generating this
 # particular L,R split.  Any j could be used,
@@ -168,12 +177,6 @@ def calc_Qk(x, Mk=None, alpha=0.9):
 
 def Ginf(a, b, n2=1):
     return gammaln(a+1)+gammaln(b-a+1)-gammaln(b+n2)
-
-def Srel(NLj, NL, NRj, NR):
-    #return np.sum( Ginf(NLj, NL, 2) + Ginf(NRj, NR, 2) \
-    #            - Ginf(NLj+NRj, NL+NR, 2) )
-    return np.sum( Sinf(NLj, NL, 2) + Sinf(NRj, NR, 2) \
-                 - Sinf(NLj+NRj, NL+NR, 2) )
 
 # can be a replacement used to make sampling insensitive to M
 def Sinf(a, b, n2=1):

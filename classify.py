@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
 
 from prob import *
+# imports eta
+
 from pathlib import Path
 
 #import cupy as cp
 #rand = cp.random
 
-#cat_penalty = 10.0 # log-probability cost per add'l category
-cat_penalty = 0.0
-
 # Mixture of independent multivariate Bernoulli distributions.
 class BernoulliMixture:
-    def __init__(self, p, c):
+    def __init__(self, p, c, alpha=None):
         assert len(p.shape) == 2 and len(c.shape) == 1
         self.K = len(c)
         assert len(p) == self.K
         self.M = p.shape[1]
+        if alpha is None:
+            self.alpha = self.M+eta
+        else:
+            self.alpha = alpha
 
         self.p = p
         self.c = c
@@ -54,8 +57,8 @@ class BernoulliMixture:
     # Log-likelihood of a sample, x, given this model
     def likelihood(self, x):
         P = np.dot(np.prod( self.p*x[:,newaxis,:] + (1-self.p)*(1-x[:,newaxis,:]) , 2 ), self.c)
-        lP = np.sum(np.log(P)) + self.logprior() - cat_penalty*self.K
-               # - np.log(self.p).sum() - np.log(1 - self.p).sum() - np.dot(self.c, np.log(self.c))
+        lP = np.sum(np.log(P)) + self.logprior() + cat_prior(len(x), self.alpha, self.M, self.K) \
+               + (self.alpha-1)*np.log(self.c).sum()
         return lP
 
     # derivative of log-likelihood of a sample, x, given this model
@@ -64,7 +67,7 @@ class BernoulliMixture:
         P1 = self.p*x[:,newaxis,:] + (1-self.p)*(1-x[:,newaxis,:]) # N,K,M
         P2 = np.prod(P1, 2) # N,K
         D  = 1./np.dot(P2, self.c) # N
-        dlC = np.dot(D, P2)
+        dlC = np.dot(D, P2) + (self.alpha-1)/self.c
         for j in range(self.M):
             u = P1[:,:,j].copy()
             P1[:,:,j] = 2*x[:,newaxis,j] - 1
@@ -184,7 +187,7 @@ class BBMs:
         M = x.shape[1]
         Nk = np.array( [ 3.0 ] )
         Mj = np.array( [ 1.0 + x[0] ] )
-        #B = BernoulliMixture(Mj/Nk[:,newaxis], Nk/sum(Nk))
+        #B = BernoulliMixture(Mj/Nk[:,newaxis], Nk/sum(Nk), M+eta)
         for i in range(1, len(x)):
             p = Mj/Nk[:,newaxis]
             P = np.prod( p*x[i,newaxis,:] + (1-self.p)*(1-x[i,newaxis,:]) , 2 )**(1.0/M)
@@ -199,12 +202,13 @@ class BBMs:
 # deals with category-sorted data such that len(Nk) == K
 # and len(x) == sum(Nk)
 class BBMr:
-    def __init__(self, x, Nk=None):
+    def __init__(self, x, Nk=None, verb=False):
         if Nk is None: # one category
             Nk = np.array([len(x)])
         self.x = x
         self.S = x.shape[0]
         self.M = x.shape[1]
+        self.verb = verb
 
         self.recompute(Nk)
 
@@ -239,17 +243,17 @@ class BBMr:
     # sample a Bernoulli Mixture distribution from x and k
     # K is the number of categories (should be k.max()+1)
     def sampleBernoulliMixture(self):
+        alpha = self.M + eta
         rej = 0
         while True:
-            B = BernoulliMixture(randBeta(self.Mj+1, self.Nk[:,newaxis]-self.Mj+1), rand.dirichlet(self.Nk+1))
-            #B = BernoulliMixture(randBeta(self.Mj+1, self.Nk[:,newaxis]-self.Mj+1), rand.dirichlet(self.Nk+0.01*self.S))
+            B = BernoulliMixture(randBeta(self.Mj+1, self.Nk[:,newaxis]-self.Mj+1), rand.dirichlet(self.Nk+alpha), alpha)
             if rand.uniform() < np.exp(B.logprior()):
                 break
             rej += 1
-            if rej == 10:
+            if rej == 50:
                 print("Rejecting lots of samples.")
-        if rej >= 10:
-            print("Done, %d rejected samples"%rej)
+        if rej >= 50:
+            print("Done. %d rejected samples"%rej)
         return B
 
     ## TODO: create a maximum-likelihood Bernoulli mixture
@@ -304,7 +308,8 @@ class BBMr:
                            self.Mj[v], self.Nk[v],
                            self.S, self.K-1, split_freq, Qsum):
             return False
-        print("Combined categories %d and %d - %d"%(u,v,self.K-1))
+        if self.verb:
+            print("Combined categories %d and %d - %d"%(u,v,self.K-1))
 
         # Divide into 4 logical categories:
         # ----                    ----
@@ -372,7 +377,8 @@ class BBMr:
                             self.S, self.K, split_freq, Qsum):
             return False
 
-        print("Split %d on %d - %d"%(k,j, self.K+1))
+        if self.verb:
+            print("Split %d on %d - %d"%(k,j, self.K+1))
 
         L = x[z == 0] # these copy x
         R = x[z == 1]
@@ -433,7 +439,7 @@ def bootstrap(x, Nguess):
         lm = cat_penalty / 10.0
         K = int( np.ceil(-np.log(uniform()+1e-8)/lm) ) + 1
         # random categories
-        B = BernoulliMixture(rand.random((K,M)), np.ones(K)/float(K))
+        B = BernoulliMixture(rand.random((K,M)), np.ones(K)/float(K), M+eta)
         cat = B.classify(x)
         BBM = mk_BBMr(x, cat)
         B = BBM.sampleBernoulliMixture() # likely sample from B

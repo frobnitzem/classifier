@@ -1,4 +1,5 @@
 from classify import *
+from test_helpers import read_rule
 
 import numpy as np
 newaxis = np.newaxis
@@ -9,20 +10,49 @@ def gen_chomp(N, P, sigma):
     x = np.zeros((N,2*P-1,2))
     # harmonic oscillator snapshots, conc. toward range ends
     t = 0.25*np.pi*(np.cos(np.arange(N).astype(float)*np.pi/N) + 1.0)
-    x[:,:P,0] = np.arange(P)
-    x[:,P:,0] = np.arange(1,P)*np.sin(t)[:,newaxis]
-    x[:,P:,1] = np.arange(1,P)*np.cos(t)[:,newaxis]
+    x[:,:P,0] = np.arange(P)/(P-1.0)
+    x[:,P:,0] = np.arange(1,P)*np.sin(t)[:,newaxis] / (P-1.0)
+    x[:,P:,1] = np.arange(1,P)*np.cos(t)[:,newaxis] / (P-1.0)
     return x + rand.standard_normal(x.shape)*sigma
 
 def gen_heli(N, P, sigma):
     x = np.zeros((N,2*P,3))
     t = np.arange(N).astype(float)*np.pi/N
 
-    x[:,:P,0] = np.arange(P)
-    x[:,P+1:,0] = np.cos(t)[:,newaxis]*np.arange(1,P)
-    x[:,P+1:,1] = np.sin(t)[:,newaxis]*np.arange(1,P)
-    x[:,P:,2] = 1.0
+    x[:,:P,0] = np.arange(P) / (P-1.0)
+    x[:,P+1:,0] = np.cos(t)[:,newaxis]*np.arange(1,P) / (P-1.0)
+    x[:,P+1:,1] = np.sin(t)[:,newaxis]*np.arange(1,P) / (P-1.0)
+    x[:,P:,2] = 0.25
     return x + rand.standard_normal(x.shape)*sigma
+
+def rotate_z_by(th):
+    c = np.cos(th)
+    s = np.sin(th)
+    return np.array([[c, -s, 0],[s, c, 0],[0, 0, 1.0]])
+def rotate_x_by(th):
+    c = np.cos(th)
+    s = np.sin(th)
+    return np.array([[1.0, 0, 0],[0, c, -s],[0, s, c]])
+
+def gen_glob(N, P, sigma):
+    P = int(np.sqrt(P))*2+1
+    x0 = read_rule(P) # sphere of radius 1
+    x1 = x0.copy()
+    x1[:,2] += 2.1
+    x2 = x0.copy()
+    x2[:,0] += 2.1
+
+    P = len(x0)
+    x = np.zeros((N,3*P,3))
+
+    # harmonic oscillator snapshots, conc. toward range ends
+    t1 =  0.25*np.pi*(np.cos(np.arange(N).astype(float)*np.pi/N) + 1.0)
+    t2 = -0.25*np.pi*(np.cos(np.arange(N).astype(float)*2*np.pi/N) + 1.0)
+    x[:,:P] = x0
+    for i in range(N):
+        x[i,P:2*P] = np.dot(x1, rotate_x_by(t1[i]).transpose())
+        x[i,2*P:]  = np.dot(x2, rotate_z_by(t2[i]).transpose())
+    return x
 
 def dist_features(x, cut=2.0):
     cut2 = cut*cut
@@ -95,28 +125,33 @@ def test_deriv(BBM, x):
 
 def test_sample(x, samples=100):
     y = dist_features(x)
-    x = compress_features(y)
+    ind, x = compress_features(y)
 
     BBM = BBMr(x.copy())
+    count = []
     acc = 0
     for i in range(samples):
-        BBM.recategorize()
         acc += BBM.morph()
-        #if (i+1)%10 == 0:
-        #    print("  Sample %d, %d moves accepted."%(i+1,acc))
+        BBM.recategorize()
+        if (i+1)%10 == 0:
+            if len(count) < BBM.K:
+                count += [0]*(BBM.K - len(count))
+            count[BBM.K-1] += 1
 
+        #    print("  Sample %d, %d moves accepted."%(i+1,acc))
     print("%d of %d moves accepted"%(acc,i+1))
-    print(BBM.Nk)
-    print(BBM.Mj)
+    print("Classification %s"%str(count))
+    #print(BBM.Nk)
+    #print(BBM.Mj)
     B = BBM.sampleBernoulliMixture()
     z = B.classify(x)
-    print(z)
+    #print(z)
 
 def test_features():
     x = gen_chomp(4, 4, 0.0)
     y = dist_features(x)
     #ham = np.sum(y[:,newaxis] ^ y, 2) # pairwise Hamming (L1) distance
-    x = compress_features(y)
+    ind, x = compress_features(y)
     BBM = BBMr(x.copy(), np.array([4]))
     assert BBM.M == 8
     Mj = np.array([[3, 1, 3, 3, 1, 1, 1, 1]])
@@ -170,12 +205,21 @@ def test_bbm():
     return B, x
 
 if __name__=="__main__":
+    import sys
+    argv = sys.argv
+    assert len(argv) == 3
     #test_features()
-    #x = gen_chomp(1000, 40, 0.2)
-    #x = gen_heli(1000, 40, 0.2)
-    #test_sample(x, 1000)
+    P = int(argv[2])
+    if argv[1] == "chomp":
+        x = gen_chomp(1000, P, 0.1)*4
+    elif argv[1] == "heli":
+        x = gen_heli(1000, P, 0.1)*4
+    elif argv[1] == "glob":
+        x = gen_glob(1000, P, 0.1)*2
+
+    test_sample(x, 1000)
     #test_combine()
-    B, x = test_bbm()
-    test_prior_deriv(B, x)
-    test_deriv(B, x)
+    #B, x = test_bbm()
+    #test_prior_deriv(B, x)
+    #test_deriv(B, x)
 
