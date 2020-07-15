@@ -84,10 +84,15 @@ def split_row(M, k, a, b):
     A[k+2:] = M[k+1:]
     return A
 
+# if mask == False, then it subtracts denominator of log integral{\pi^{Nk+\alpha+1}}
+#                      (i.e. gammaln(N + alpha*K))
 def cat_prior(N,alpha,M,K,mask=True):
+    # simplistic model
+    return gammaln(alpha*K)-K*gammaln(alpha) - (1-mask)*gammaln(N + alpha*K)
     #eta = alpha - M
-    #return mask*gammaln(N + alpha*K) - gammaln(N + eta*K)
-    return gammaln(alpha*K)-K*gammaln(alpha) - gammaln(N + alpha*K)
+    # model swapping overall normalization for fixed const. (pretends like alpha = eta)
+    #return mask*gammaln(N + alpha*K) - gammaln(K+1) - gammaln(N + eta*K) # mask == True
+    #return mask*gammaln(N + alpha*K) - gammaln(N + eta*K) # mask == True
 
 # Calculate the log-likelihood for splitting
 # a category into L and R
@@ -95,10 +100,10 @@ def calc_Qxy(NLj, NL, NRj, NR, N, K):
     M = len(NLj)
     assert M == len(NRj)
 
-    lp = np.sum( Ginf(NLj, NL, 2) + Ginf(NRj, NR, 2) \
-                - Ginf(NLj+NRj, NL+NR, 2) )
-    lp += cat_prior(N,M+eta,M,K+1,False) - cat_prior(N,M+eta,M,K,False)
-    return lp + gammaln(NL+M+1) + gammaln(NR+M+1) - gammaln(NL+NR+M+1)
+    alpha = M+eta
+    lp = np.sum(Ginf(NLj, NL, 2) + Ginf(NRj, NR, 2) - Ginf(NLj+NRj, NL+NR, 2))
+    lp += cat_prior(N,alpha,M,K+1,False) - cat_prior(N,alpha,M,K,False)
+    return lp + gammaln(NL+alpha) + gammaln(NR+alpha) - gammaln(NL+NR+alpha)
 
 # Calculate the log-probability of generating this
 # particular L,R split.  Any j could be used,

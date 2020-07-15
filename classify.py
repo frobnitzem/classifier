@@ -242,7 +242,7 @@ class BBMr:
 
     # sample a Bernoulli Mixture distribution from x and k
     # K is the number of categories (should be k.max()+1)
-    def sampleBernoulliMixture(self):
+    def sampleBernoulliMixture(self, max_tries = -1):
         alpha = self.M + eta
         rej = 0
         while True:
@@ -250,7 +250,9 @@ class BBMr:
             if rand.uniform() < np.exp(B.logprior()):
                 break
             rej += 1
-            if rej == 50:
+            if rej == max_tries:
+                return None
+            if rej == 50 and max_tries < 50:
                 print("Rejecting lots of samples.")
         if rej >= 50:
             print("Done. %d rejected samples"%rej)
@@ -269,10 +271,10 @@ class BBMr:
 
     # Perform recategorization move by sampling a Bernoulli mixture
     # and returning a new BBMr with new alliances.
-    #
-    # Always succeeds.
-    def recategorize(self):
-        B = self.sampleBernoulliMixture()
+    def recategorize(self, max_tries=-1):
+        B = self.sampleBernoulliMixture(max_tries)
+        if B is None:
+            return False
         z = B.classify(self.x)
 
         y, Nk = reshuffle(self.x, z)
@@ -310,7 +312,12 @@ class BBMr:
             return False
         if self.verb:
             print("Combined categories %d and %d - %d"%(u,v,self.K-1))
+        self.last = ("join", u, v)
+        self.join(u, v)
+        return True
 
+    def join(self, u, v):
+        u, v = min(u,v), max(u,v)
         # Divide into 4 logical categories:
         # ----                    ----
         # 0, ..., u               0, ..., u
@@ -355,8 +362,6 @@ class BBMr:
             self.Mj[i] = self.Mj[i+1]
         self.Mj = self.Mj[:-1]
 
-        return True
-
     # attempt a split move
     # pacc = prob. of generating the reverse(combination)
     #          / prob. of getting here
@@ -376,6 +381,7 @@ class BBMr:
         if not accept_split(NLj, NL, NRj, NR,
                             self.S, self.K, split_freq, Qsum):
             return False
+        self.last = ("split", k)
 
         if self.verb:
             print("Split %d on %d - %d"%(k,j, self.K+1))

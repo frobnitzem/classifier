@@ -6,16 +6,16 @@ newaxis = np.newaxis
 rand = np.random.default_rng() # np.random.Generator instance
 uniform = rand.random # used for CPU-uniform random numbers
 
-def gen_chomp(N, P, sigma):
+def gen_chomp(N, P):
     x = np.zeros((N,2*P-1,2))
     # harmonic oscillator snapshots, conc. toward range ends
-    t = 0.25*np.pi*(np.cos(np.arange(N).astype(float)*np.pi/N) + 1.0)
+    t = 0.25*np.pi*(np.cos(np.arange(N).astype(float)*np.pi/(N-1)) + 1.0)
     x[:,:P,0] = np.arange(P)/(P-1.0)
     x[:,P:,0] = np.arange(1,P)*np.sin(t)[:,newaxis] / (P-1.0)
     x[:,P:,1] = np.arange(1,P)*np.cos(t)[:,newaxis] / (P-1.0)
-    return x + rand.standard_normal(x.shape)*sigma
+    return x
 
-def gen_heli(N, P, sigma):
+def gen_heli(N, P):
     x = np.zeros((N,2*P,3))
     t = np.arange(N).astype(float)*np.pi/N
 
@@ -23,7 +23,7 @@ def gen_heli(N, P, sigma):
     x[:,P+1:,0] = np.cos(t)[:,newaxis]*np.arange(1,P) / (P-1.0)
     x[:,P+1:,1] = np.sin(t)[:,newaxis]*np.arange(1,P) / (P-1.0)
     x[:,P:,2] = 0.25
-    return x + rand.standard_normal(x.shape)*sigma
+    return x
 
 def rotate_z_by(th):
     c = np.cos(th)
@@ -34,20 +34,29 @@ def rotate_x_by(th):
     s = np.sin(th)
     return np.array([[1.0, 0, 0],[0, c, -s],[0, s, c]])
 
-def gen_glob(N, P, sigma):
-    P = int(np.sqrt(P))*2+1
-    x0 = read_rule(P) # sphere of radius 1
+def gen_glob(N, P):
+    glob_sz = { 6:3,
+               14:5,
+               26:7,
+               38:9,
+               50:11,
+               74:13,
+               86:15,
+               110:17,
+               146:19
+             }
+    x0 = read_rule(glob_sz[P]) # sphere of radius 1
     x1 = x0.copy()
     x1[:,2] += 2.1
     x2 = x0.copy()
     x2[:,0] += 2.1
 
-    P = len(x0)
+    assert P == len(x0)
     x = np.zeros((N,3*P,3))
 
     # harmonic oscillator snapshots, conc. toward range ends
-    t1 =  0.25*np.pi*(np.cos(np.arange(N).astype(float)*np.pi/N) + 1.0)
-    t2 = -0.25*np.pi*(np.cos(np.arange(N).astype(float)*2*np.pi/N) + 1.0)
+    t1 =  0.25*np.pi*(1.0 - np.cos(np.arange(N).astype(float)*np.pi/(N-1)))
+    t2 =  0.25*np.pi*(1.0 - np.cos(np.arange(N).astype(float)*2*np.pi/(N-1)))
     x[:,:P] = x0
     for i in range(N):
         x[i,P:2*P] = np.dot(x1, rotate_x_by(t1[i]).transpose())
@@ -131,8 +140,16 @@ def test_sample(x, samples=100):
     count = []
     acc = 0
     for i in range(samples):
-        acc += BBM.morph()
-        BBM.recategorize()
+        ok = BBM.morph()
+        acc += ok
+        if ok and BBM.last[0] == "split":
+            ok = BBM.recategorize(500) # can we find a good theta in 500 tries?
+            if not ok:
+                BBM.join(BBM.last[1], BBM.last[1]+1)
+        else:
+            ok = BBM.recategorize() # should be easy to find a good theta here
+        #ok = BBM.recategorize()
+
         if (i+1)%10 == 0:
             if len(count) < BBM.K:
                 count += [0]*(BBM.K - len(count))
@@ -145,7 +162,7 @@ def test_sample(x, samples=100):
     #print(BBM.Mj)
     B = BBM.sampleBernoulliMixture()
     z = B.classify(x)
-    #print(z)
+    print(z)
 
 def test_features():
     x = gen_chomp(4, 4, 0.0)
@@ -210,12 +227,14 @@ if __name__=="__main__":
     assert len(argv) == 3
     #test_features()
     P = int(argv[2])
+    assert P%2 == 0 and P%3 == 0
     if argv[1] == "chomp":
-        x = gen_chomp(1000, P, 0.1)*4
+        x = gen_chomp(1000, P//2)*4
     elif argv[1] == "heli":
-        x = gen_heli(1000, P, 0.1)*4
+        x = gen_heli(1000, P//2)*4
     elif argv[1] == "glob":
-        x = gen_glob(1000, P, 0.1)*2
+        x = gen_glob(1000, P//3)*2
+    x += rand.standard_normal(x.shape) * 0.1
 
     test_sample(x, 1000)
     #test_combine()
