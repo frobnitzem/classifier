@@ -3,6 +3,8 @@ import pylab as plt
 
 z = np.load("categories.npy").astype(int)
 rmsd = np.load("../rmsdmat.npy")
+if len(z)//10 == len(rmsd): # hack due to our particular trj.
+    z = z[::10]
 if len(z) == len(rmsd)+1: # hack due to our particular trj.
     z = z[1:]
 
@@ -53,11 +55,12 @@ def plt_pairs(rmsd, Nk):
             plt.plot(c, n, 'r-')
             v += Nk[j]
         u += Nk[i]
-    plt.show()
+    #plt.show()
+    plt.savefig("rmsd_hist.png")
 
 x, Nk = permute(rmsd, z, K)
-plt.imshow(x)
-plt.colorbar()
-plt.show()
+#plt.imshow(x)
+#plt.colorbar()
+#plt.show()
 
 plt_pairs(x, Nk)

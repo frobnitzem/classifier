@@ -27,7 +27,7 @@ def load_features(name, ind=None, sl=None):
     if sl is not None:
         x = x[sl]
     x = np.unpackbits( x ).reshape( (len(x),-1) )
-    print("Input is %s samples x %s features" % x.shape)
+    #print("Input is %s samples x %s features" % x.shape)
     if ind is None:
         return compress_features(x)
     return ind, x[:,ind]

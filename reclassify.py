@@ -8,8 +8,14 @@ def main(argv):
     ind = np.load(argv[2])
     B = BernoulliMixture(np.load("features.npy"), np.load("members.npy"))
     ind, x = load_features(argv[1], ind)
-    z = B.classify(x)
+    P = B.categorize(x)
+    z = P.argmax(1)
     np.save("categories.npy", z)
+
+    ex = P.argmax(0) # exemplars for ea. category
+    print("# cluster, size, representative")
+    for k,i in enumerate(ex):
+        print("%d %d %d"%(k+1, np.sum(z == k), i+1))
 
 if __name__=="__main__":
     import sys

@@ -472,7 +472,7 @@ def sample(B, x, Niter):
 def main(argv):
     best = [] # best likelihood at each n
 
-    ind, x = load_features(argv[1])
+    ind, x = load_features(argv[1], sl=slice(None,None,10))
     np.save("indices.npy", ind)
 
     #z = cluster(x, 10)
@@ -490,17 +490,17 @@ def main(argv):
         y, Nk = reshuffle(BBM.x, z)
         BBM.x[:] = y
         BBM.recompute(Nk)
-        if len(best) < B.K or prob > best[B.K-1]:
-            if len(best) < B.K:
+        if len(best) < BBM.K or prob > best[BBM.K-1]:
+            if len(best) < BBM.K:
                 best.append(0)
-            best[B.K-1] = prob
+            best[BBM.K-1] = prob
             print("New best likelihood: %e"%prob)
-            print("Members: %s"%B.c)
-            out = Path("sz%d"%B.K)
+            print("Members: %s"%str(Nk))
+            out = Path("sz%d"%BBM.K)
             out.mkdir(exist_ok=True)
             with open(out / "info.txt", "w") as f:
                 f.write("# log-likelihood = %e\n"%prob
-                        + '\n'.join("%2d %d"%(i,n) for i,n in enumerate(Nk))
+                        + '\n'.join("%2d %d"%(i+1,n) for i,n in enumerate(Nk))
                         + '\n')
             np.save(out / "features.npy", B.p)
             np.save(out / "members.npy", B.c)
