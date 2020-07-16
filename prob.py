@@ -22,8 +22,10 @@ def compress_features(x, verb=True):
         print(Mi[ind])
     return np.array(ind), x[:,ind] # truncate feature space to the interesting subset
 
-def load_features(name, ind=None):
-    x = np.load(name)[::10]
+def load_features(name, ind=None, sl=None):
+    x = np.load(name)
+    if sl is not None:
+        x = x[sl]
     x = np.unpackbits( x ).reshape( (len(x),-1) )
     print("Input is %s samples x %s features" % x.shape)
     if ind is None:
