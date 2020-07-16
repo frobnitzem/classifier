@@ -92,7 +92,8 @@ class BernoulliMixture:
         # note - this only works for x = 0 or 1
         # x is S by M
         # p is K by M
-        P = np.prod( self.p*x[:,newaxis,:] + (1-self.p)*(1-x[:,newaxis,:]) , 2 ) * self.c
+        P = np.log(self.p*x[:,newaxis,:] + (1.0-self.p)*(1-x[:,newaxis,:])).sum(2) + np.log(self.c)
+        P = np.exp(P - P.max(1)[:,newaxis])
         P /= np.sum(P, 1)[:,newaxis]
         return P
 
@@ -284,31 +285,31 @@ class BBMr:
         return True
 
     # attempt a split or combine
-    def morph(self, split_freq=0.5):
+    def morph(self, split_freq=0.5, beta=0.9):
         if self.K == 1 or uniform() < split_freq:
             Q = self.split_choice()
             k, j = choose(Q)
-            return self.split(k, j, split_freq, np.sum(Q))
+            return self.split(k, j, split_freq, beta, np.sum(Q))
 
         # prob of choosing this join is (1-split_freq)*2/K*(K-1)
         u = int(uniform()*self.K)
         v = int(uniform()*(self.K-1))
         v += (v>=u)
 
-        Qsum = np.dot(self.Mj[u]+self.Mj[v]+1,
-                 self.Nk[u]+self.Nk[v]-self.Mj[u]-self.Mj[v]+1)
-        for k in range(self.K-2):
-            k += (k>=u) + (k>=v) # skip these two
-            Qsum += np.dot(self.Mj[k]+1, self.Nk[k]-self.Mj[k]+1)
-        return self.combine(u, v, split_freq, Qsum)
+        # would-be eligible splits
+        Q2 = self.split_choice()
+        Q2[u] = 0
+        Q2[v] = (self.Nk[u]+self.Nk[v] != self.Mj[u]+self.Mj[v]) \
+              * (self.Mj[u]+self.Mj[v] != 0)
+        return self.combine(u, v, split_freq, beta, Q2.sum())
 
     # Attempt to combine 2 categories.
-    def combine(self, u, v, split_freq, Qsum):
+    def combine(self, u, v, split_freq, beta, Qsum):
         u, v = min(u,v), max(u,v)
 
         if not accept_join(self.Mj[u], self.Nk[u],
                            self.Mj[v], self.Nk[v],
-                           self.S, self.K-1, split_freq, Qsum):
+                           self.S, self.K-1, split_freq, beta, Qsum):
             return False
         if self.verb:
             print("Combined categories %d and %d - %d"%(u,v,self.K-1))
@@ -365,21 +366,26 @@ class BBMr:
     # attempt a split move
     # pacc = prob. of generating the reverse(combination)
     #          / prob. of getting here
-    def split(self, k, j, split_freq, Qsum):
+    def split(self, k, j, split_freq, beta, Qsum):
         x = self.get(k)
-        p = uniform()
-        q = uniform()
-        pR = p*x[:,j] + q*(1-x[:,j]) # p or q, depending on bit j
-        z = rand.random(pR.shape) < pR # sub-categorization
-        z = z.astype(np.int)
+        NR = 0
+        if self.verb:
+            assert len(x) == self.Nk[k]
+            assert len(x) > 2
+            assert self.Mj[k,j] != self.Nk[k]
+            assert self.Mj[k,j] != 0
+        while NR == 0 or NR == self.Nk[k]:
+            pR = beta*x[:,j] + (1-beta)*(1-x[:,j]) # p or q, depending on bit j
+            z = rand.random(pR.shape) < pR # sub-categorization
+            z = z.astype(np.int)
+            NR = np.sum(z)
 
-        NR = np.sum(z)
         NL = len(x) - NR
         NRj = np.dot(z, x)
         NLj = self.Mj[k] - NRj # dot(1-z, x) = Mj[k]-NRj
 
         if not accept_split(NLj, NL, NRj, NR,
-                            self.S, self.K, split_freq, Qsum):
+                            self.S, self.K, split_freq, beta, Qsum):
             return False
         self.last = ("split", k)
 
@@ -400,11 +406,7 @@ class BBMr:
     # Calculate the probability of choosing split (k,j)
     # returns a matrix of un-normalized probabilities.
     def split_choice(self):
-        #Q = np.zeros((self.K, self.M))
-        #for k, x in enumerate(self.loop()):
-            #Q[k] = calc_Qk(x, self.Mj[k])
-        Q = (self.Mj+1) * (self.Nk[:,newaxis]-self.Mj+1)
-        return Q
+        return ( (self.Nk[:,newaxis] != self.Mj)*(self.Mj != 0) ).astype(float)
 
 def plot(x, Nk, P):
     K = P.shape[1]

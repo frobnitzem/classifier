@@ -37,10 +37,10 @@ def choose(p):
     if len(sh) == 1:
         return i
     idx = []
-    for N in sh:
+    for N in sh[::-1]:
         idx.append(i % N)
         i = i // N
-    return tuple(idx)
+    return tuple(idx[::-1])
 
 # probabilities are exp(Q)
 def choose_exp(Q):
@@ -106,48 +106,61 @@ def calc_Qxy(NLj, NL, NRj, NR, N, K):
     return lp + gammaln(NL+alpha) + gammaln(NR+alpha) - gammaln(NL+NR+alpha)
 
 # Calculate the log-probability of generating this
-# particular L,R split.  Any j could be used,
-# so we need the sum.
-# FIXME: reconsider prob. of NL,NR == 0 or of sum_j Q_{kj} vs. sum_{kj} Q_{kj}
-def calc_Qgen(NLj, NL, NRj, NR):
+# particular L,R split.  Any j could be used, so we need the sum.
+def calc_Qgen(NLj, NL, NRj, NR, beta=0.9):
     M = len(NLj)
     assert M == len(NRj)
 
+    lb = np.log(beta)
+    nlb = np.log(1.0-beta)
+
     NKj = NLj+NRj
     NK  = NL+NR
-    gen = Ginf(NLj, NL) + Ginf(NRj, NR) - Ginf(NKj, NK) \
-          + Ginf(NL, NK)
+    mask = ((NKj != NK) * (NKj != 0)).astype(int)
+
+    genL = (NLj+NR-NRj)*lb + (NRj+NL-NLj)*nlb
+    genR = (NRj+NL-NLj)*lb + (NLj+NR-NRj)*nlb
+    # P = beta^(correct cat.) (1-beta)^(incorrect cat.) / 1.0 - P(all L) - P(all R)
+    #
+    den = np.log(1.0
+            - np.exp(NKj*lb+(NK-NKj)*nlb)
+            - np.exp(NKj*nlb+(NK-NKj)*lb) )
+    genL -= den
+    genR -= den
+
     # Generation prob. is proportional to this factor:
     #   - np.log((Nk+1)*(N-Nk+1))
     # so we omit it here, since it cancelled.
 
-    lp = gen.max() # log( sum(exp(gen)) )
+    lp = max(genL.max(), genR.max()) # log( sum(exp(gen)) )
     #if np.isinf(lp):
     #    raise FloatingPointError
 
-    lp += np.log( np.sum(np.exp(gen-lp)) ) # in [0, log(M)]
+    lp += np.log( 0.5*(np.dot(np.exp(genL-lp), mask)
+                     + np.dot(np.exp(genR-lp), mask))
+                ) # in [0, log(M)]
     return lp
 
 # K -- corresponds to before split
-def split_lp(NLj, NL, NRj, NR, N, K, split_freq, Qsum):
+def split_lp(NLj, NL, NRj, NR, N, K, split_freq, beta, Qsum):
     freq = split_freq + (1.0 - split_freq)*(K == 1)
     pacc = (1.0-split_freq)*2*Qsum / (freq*K*(K+1))
 
-    lp = np.log(pacc) - calc_Qgen(NLj, NL, NRj, NR)
+    lp = np.log(pacc) - calc_Qgen(NLj, NL, NRj, NR, beta)
     lp += calc_Qxy(NLj, NL, NRj, NR, N, K)
-    #print("%e %e %e %e"%(np.log(pacc), calc_Qgen(NLj, NL, NRj, NR), calc_Qxy(NLj, NL, NRj, NR, N, K), lp))
+    #print("%e %e %e %e"%(np.log(pacc), calc_Qgen(NLj, NL, NRj, NR, beta), calc_Qxy(NLj, NL, NRj, NR, N, K), lp))
     return lp
 
 # K -- corresponds to before split
-def accept_split(NLj, NL, NRj, NR, N, K, split_freq, Qsum):
+def accept_split(NLj, NL, NRj, NR, N, K, split_freq, beta, Qsum):
     if NL == 0 or NR == 0:
         return False
-    lp = split_lp(NLj, NL, NRj, NR, N, K, split_freq, Qsum)
+    lp = split_lp(NLj, NL, NRj, NR, N, K, split_freq, beta, Qsum)
     return lp >= 0.0 or np.exp(lp) > uniform()
 
 # K -- corresponds to before split
-def accept_join(NLj, NL, NRj, NR, N, K, split_freq, Qsum):
-    lp = -split_lp(NLj, NL, NRj, NR, N, K, split_freq, Qsum)
+def accept_join(NLj, NL, NRj, NR, N, K, split_freq, beta, Qsum):
+    lp = -split_lp(NLj, NL, NRj, NR, N, K, split_freq, beta, Qsum)
     return lp >= 0.0 or np.exp(lp) > uniform()
 
 # Calculate the split log-likelihood estimate
@@ -182,13 +195,4 @@ def calc_Qk(x, Mk=None, alpha=0.9):
 
 def Ginf(a, b, n2=1):
     return gammaln(a+1)+gammaln(b-a+1)-gammaln(b+n2)
-
-# can be a replacement used to make sampling insensitive to M
-def Sinf(a, b, n2=1):
-    m = (a!=b)*(a!=0) == False # highlight problem areas
-    f = a.astype(float)/b
-    f[m] = 0.5
-    S = f*np.log(f) + (1.0-f)*np.log(1.0-f)
-    S[m] = 0.0
-    return b*S
 
