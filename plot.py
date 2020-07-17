@@ -35,32 +35,51 @@ def permute(rmsd, z, K):
 
     return x, Nk
 
-def plt_pairs(rmsd, Nk):
-    n, bins = np.histogram(rmsd.reshape(-1), 100)
-    bins[0] += 0.001
+def plot_hist(c, n, ax, **args):
+    dc = bins[2]-bins[1]
     c = 0.5*(bins[1:]+bins[:-1])
-    n = n.astype(float)/n.sum()
-    plt.plot(c, n, 'b-')
+    ax.plot(c, n.astype(float)/(dc*n.sum()), **args)
+
+def plt_pairs(rmsd, Nk, ax):
+    nb, bins = np.histogram(rmsd.reshape(-1), 100)
+    bins[0] += 0.001
 
     u = 0
     for i in range(K):
         if Nk[i] == 0: continue
-        n, _ = np.histogram(rmsd[u:u+Nk[i],u:u+Nk[i]].reshape(-1), bins)
-        n = n.astype(float)/n.sum()
-        plt.plot(c, n, 'k-')
-        v = 0
+        v = np.sum(Nk[:i+1])
         for j in range(i+1,K):
+            if Nk[j] == 0: continue
             n, _ = np.histogram(rmsd[u:u+Nk[i],v:v+Nk[j]].reshape(-1), bins)
-            n = n.astype(float)/n.sum()
-            plt.plot(c, n, 'r-')
+            plot_hist(c, b, ax, 'r-')
             v += Nk[j]
         u += Nk[i]
-    #plt.show()
-    plt.savefig("rmsd_hist.png")
+    u = 0
+    for i in range(K):
+        if Nk[i] == 0: continue
+        n, _ = np.histogram(rmsd[u:u+Nk[i],u:u+Nk[i]].reshape(-1), bins)
+        plot_hist(c, b, ax, 'k-')
+        u += Nk[i]
 
+    plot_hist(c, nb, ax, 'b-', linewidth=1.5)
+    ax.set_xlabel("RMSD")
+    ax.set_ylabel("PDF")
+
+def plt_hist(x, Nk, ax):
+    Nk = np.array(Nk)
+    img = ax.imshow(x, cmap='bone_r')
+    for p in Nk[:-1].cumsum():
+        ax.axhline(p, linewidth=0.75, color='w')
+        ax.axvline(p, linewidth=0.75, color='w')
+    plt.colorbar(img)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+fig, ax = plt.subplots(1, 2, figsize=(6.5,4))
 x, Nk = permute(rmsd, z, K)
-#plt.imshow(x)
-#plt.colorbar()
-#plt.show()
 
-plt_pairs(x, Nk)
+plt_pairs(x, Nk, ax[0])
+plt_hist(x, Nk, ax[1])
+plt.savefig("rmsd.png")
+plt.show()
+
