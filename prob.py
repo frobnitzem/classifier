@@ -4,8 +4,8 @@ eta = 1
 
 import numpy as np
 newaxis = np.newaxis
-rand = np.random.default_rng() # np.random.Generator instance
-uniform = rand.random # used for CPU-uniform random numbers
+
+from numpy.random import default_rng, SeedSequence
 np.seterr(under='ignore') # exp(-800) == 0 is OK
 
 from scipy.special import gammaln
@@ -32,10 +32,10 @@ def load_features(name, ind=None, sl=None):
         return compress_features(x)
     return ind, x[:,ind]
 
-def choose(p):
+def choose(p, rand):
     sh = p.shape
     p = np.cumsum( np.reshape(p, -1) )
-    i = np.sum(uniform()*p[-1] > p)
+    i = np.sum(rand.random()*p[-1] > p)
     if len(sh) == 1:
         return i
     idx = []
@@ -45,17 +45,21 @@ def choose(p):
     return tuple(idx[::-1])
 
 # probabilities are exp(Q)
-def choose_exp(Q):
+def choose_exp(Q, rand):
     M = Q.max()
-    return choose(np.exp(Q-M))
+    return choose(np.exp(Q-M), rand)
+
+# Metropolis-MC acceptance criterion
+def metropolis(lp, rand):
+    return lp >= 0.0 or np.exp(lp) > rand.random()
 
 # Draw N samples from the Bernoulli distribution
-def Bernoulli(p, N):
+def Bernoulli(p, N, rand):
     M = len(p)
     return rand.random((N,M)) < p
 
 # modified randBeta dealing with alpha, beta = 0
-def randBeta(alpha, beta):
+def randBeta(alpha, beta, rand):
     m0 = alpha == 0 # p must be 0
     m1 = beta == 0  # p must be 1
     p = rand.beta(alpha+m0, beta+m1)
@@ -85,6 +89,12 @@ def split_row(M, k, a, b):
     A[k+1] = b
     A[k+2:] = M[k+1:]
     return A
+
+# delete row u
+def del_row(M, u):
+    for i in range(u, len(M)-1):
+        M[i] = M[i+1]
+    return M[:-1]
 
 # if mask == False, then it subtracts denominator of log integral{\pi^{Nk+\alpha+1}}
 #                      (i.e. gammaln(N + alpha*K))
@@ -144,7 +154,7 @@ def calc_Qgen(NLj, NL, NRj, NR, beta=0.9):
     return lp
 
 # K -- corresponds to before split
-def split_lp(NLj, NL, NRj, NR, N, K, split_freq, beta, Qsum):
+def split_prefactor(NLj, NL, NRj, NR, N, K, split_freq, beta, Qsum):
     freq = split_freq + (1.0 - split_freq)*(K == 1)
     pacc = (1.0-split_freq)*2*Qsum / (freq*K*(K+1))
 
@@ -152,18 +162,6 @@ def split_lp(NLj, NL, NRj, NR, N, K, split_freq, beta, Qsum):
     lp += calc_Qxy(NLj, NL, NRj, NR, N, K)
     #print("%e %e %e %e"%(np.log(pacc), calc_Qgen(NLj, NL, NRj, NR, beta), calc_Qxy(NLj, NL, NRj, NR, N, K), lp))
     return lp
-
-# K -- corresponds to before split
-def accept_split(NLj, NL, NRj, NR, N, K, split_freq, beta, Qsum):
-    if NL == 0 or NR == 0:
-        return False
-    lp = split_lp(NLj, NL, NRj, NR, N, K, split_freq, beta, Qsum)
-    return lp >= 0.0 or np.exp(lp) > uniform()
-
-# K -- corresponds to before split
-def accept_join(NLj, NL, NRj, NR, N, K, split_freq, beta, Qsum):
-    lp = -split_lp(NLj, NL, NRj, NR, N, K, split_freq, beta, Qsum)
-    return lp >= 0.0 or np.exp(lp) > uniform()
 
 # Calculate the split log-likelihood estimate
 # for the category (returns vector over j)

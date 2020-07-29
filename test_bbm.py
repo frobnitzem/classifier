@@ -1,10 +1,9 @@
 from classify import *
-from test_helpers import read_rule
+from test_helpers import read_rule, sequential
 
 import numpy as np
 newaxis = np.newaxis
-rand = np.random.default_rng() # np.random.Generator instance
-uniform = rand.random # used for CPU-uniform random numbers
+g_rand = np.random.default_rng() # np.random.Generator instance
 
 def gen_chomp(N, P):
     x = np.zeros((N,2*P-1,2))
@@ -80,18 +79,18 @@ def dist_features(x, cut=2.0):
     return y
 
 def test_combine():
-    B = BernoulliMixture(np.array([ [ 0.997,  0.1, 0.3,  0.04, 0.1,   0.1],
-                                    [ 0.5,    0.0, 0.1,  0.02, 0.991, 0.8],
-                                    [ 0.997,  0.1, 0.3,  0.04, 0.1,   0.1] ]),
-                         np.ones(3)/3.0)
+    p = np.array([ [ 0.997,  0.1, 0.3,  0.04, 0.1,   0.1],
+                   [ 0.5,    0.0, 0.1,  0.02, 0.991, 0.8],
+                   [ 0.997,  0.1, 0.3,  0.04, 0.1,   0.1] ])
+    B = BernoulliMixture(p, np.ones(3)/3.0, p.shape[1]+1, g_rand)
     Nk = np.array([3,2,5])
     x = B.sample(Nk)
-    BBM = BBMr(x.copy(), Nk)
+    BBM = BBMr(x.copy(), g_rand, Nk)
     #print(x)
     #print(BBM.Nk)
     #print(BBM.Mj)
     Mj = [BBM.Mj[0]+BBM.Mj[2], BBM.Mj[1].copy()]
-    while not BBM.combine(0, 2, 0.9, 1.0):
+    while not BBM.combine(0, 2, 0.9, 0.9, 1.0):
         pass
     #print(BBM.x)
     #print(BBM.Nk)
@@ -107,7 +106,7 @@ def test_prior_deriv(BBM, x):
     print(BBM.p)
     from ucgrad import Ndiff
     def plike(p):
-        B = BernoulliMixture(p, BBM.c)
+        B = BernoulliMixture(p, BBM.c, x.shape[1]+1, g_rand)
         return B.logprior()
 
     d1 = Ndiff(BBM.p, plike, 1e-9)
@@ -118,10 +117,10 @@ def test_prior_deriv(BBM, x):
 def test_deriv(BBM, x):
     from ucgrad import Ndiff
     def plike(p):
-        B = BernoulliMixture(p, BBM.c)
+        B = BernoulliMixture(p, BBM.c, x.shape[1]+1, g_rand)
         return B.likelihood(x)
     def clike(c):
-        B = BernoulliMixture(BBM.p, c)
+        B = BernoulliMixture(BBM.p, c, x.shape[1]+1, g_rand)
         return B.likelihood(x)
 
     d1 = Ndiff(BBM.p, plike, 1e-8)
@@ -132,46 +131,66 @@ def test_deriv(BBM, x):
     max_err = np.abs(d2-d4).max()/np.abs(d2).max()
     print("Max derivative error (c) = %e"%max_err)
 
+class Result:
+    def __init__(self, x):
+        self.x = x
+        self.count = []
+        self.S = 0
+        self.s1 = 0.0
+        self.s2 = 0.0
+
+    def f(self, BBM):
+        if len(self.count) < BBM.K:
+            self.count += [0]*(BBM.K - len(self.count))
+        z = BBM.B.classify(self.x)
+        a,b = sequential(z)
+
+        self.count[BBM.K-1] += 1
+        self.s1 += a
+        self.s2 += b
+        self.S += 1
+
+    def extend(self, other):
+        self.S += other.S
+        self.s1 += other.s1
+        self.s2 += other.s2
+        if len(self.count) < len(other.count):
+            self.count += [0]*(len(other.count)-len(self.count))
+        for i in range(len(other.count)):
+            self.count[i] += other.count[i]
+
+def f(x, BBM):
+    R = Result(x)
+    R.f(BBM)
+    return R
+
+def accum(ans, a):
+    ans.extend(a)
+
 def test_sample(x, samples=100):
     y = dist_features(x)
     ind, x = compress_features(y)
 
-    BBM = BBMr(x.copy())
-    count = []
     acc = 0
-    for i in range(samples):
-        ok = BBM.morph()
-        acc += ok
-        if ok and BBM.last[0] == "split":
-            ok = BBM.recategorize(500) # can we find a good theta in 500 tries?
-            if not ok:
-                BBM.join(BBM.last[1], BBM.last[1]+1)
-        else:
-            ok = BBM.recategorize() # should be easy to find a good theta here
-        #ok = BBM.recategorize()
+    s1, s2 = 0.0, 0.0
 
-        if (i+1)%10 == 0:
-            if len(count) < BBM.K:
-                count += [0]*(BBM.K - len(count))
-            count[BBM.K-1] += 1
+    R = accum_sample(x, 5, f, accum, samples)
 
-        #    print("  Sample %d, %d moves accepted."%(i+1,acc))
-    print("%d of %d moves accepted"%(acc,i+1))
-    print("Classification %s"%str(count))
+    print("Classification %s"%str(R.count))
+    print("Accuracy = %f %f"%(R.s1/R.S, R.s2/R.S))
     #print(BBM.Nk)
     #print(BBM.Mj)
-    B = BBM.sampleBernoulliMixture()
-    z = B.classify(x)
-    print(z)
+    #z = BBM.B.classify(x)
+    #print(z)
 
 def test_features():
-    x = gen_chomp(4, 4, 0.0)
+    x = gen_chomp(4, 4)*3
     y = dist_features(x)
     #ham = np.sum(y[:,newaxis] ^ y, 2) # pairwise Hamming (L1) distance
     ind, x = compress_features(y)
-    BBM = BBMr(x.copy(), np.array([4]))
+    BBM = BBMr(x.copy(), g_rand, np.array([4]))
     assert BBM.M == 8
-    Mj = np.array([[3, 1, 3, 3, 1, 1, 1, 1]])
+    Mj = np.array([[3, 1, 3, 2, 2, 1, 2, 2]])
     assert np.allclose(BBM.Mj, Mj)
     assert np.allclose(BBM.get(0), x)
     assert BBM.recategorize()
@@ -179,11 +198,10 @@ def test_features():
 
     Q = BBM.split_choice()
     Qsum = np.sum(Q)
-    assert np.allclose(Q, 8)
-    assert Qsum == 64
+    assert np.allclose(Q, 1)
 
     k, j = 0, 6
-    while not BBM.split(k, j, 0.5, Qsum):
+    while not BBM.split(k, j, 0.5, 0.9, Qsum):
         pass
     print(BBM.Nk)
     print(BBM.Mj)
@@ -192,7 +210,7 @@ def test_features():
     assert np.allclose( np.sum(BBM.Mj,0), Mj )
 
     #Qsum = np.dot(Mj+1, len(x)-Mj+1) # same as earlier Qsum
-    while not BBM.combine(0, 1, 0.5, Qsum):
+    while not BBM.combine(0, 1, 0.5, 0.9, Qsum):
         pass
 
     print("combined!")
@@ -203,15 +221,15 @@ def test_features():
     assert np.allclose(BBM.Nk, np.array([4]))
  
 def test_bbm():
-    B = BernoulliMixture(np.array([ [ 0.0001, 0.5,    0.98, 0.02, 0.5,   0.999999],
-                                    [ 0.5,    0.0001, 0.1,  0.02, 0.991, 0.8],
-                                    [ 0.997,  0.1,    0.3,  0.04, 0.1,   0.1] ]),
-                         np.ones(3)/3.0)
+    p = np.array([ [ 0.0001, 0.5,    0.98, 0.02, 0.5,   0.999999],
+                   [ 0.5,    0.0001, 0.1,  0.02, 0.991, 0.8],
+                   [ 0.997,  0.1,    0.3,  0.04, 0.1,   0.1] ])
+    B = BernoulliMixture(p, np.ones(3)/3.0, p.shape[1]+1, g_rand)
     #print(B.prior(True))
     N = np.array([3000,2000,5000]) # 10k samples
     x = B.sample(N)
 
-    BBM = BBMr(x, N)
+    BBM = BBMr(x, g_rand, N)
     print(BBM.Mj)
     print((B.p*np.array(N)[:,newaxis]).astype(np.int))
 
@@ -221,11 +239,22 @@ def test_bbm():
 
     return B, x
 
+def run_tests():
+    B, x = test_bbm()
+    test_features()
+    test_combine()
+    test_prior_deriv(B, x)
+    test_deriv(B, x)
+
 if __name__=="__main__":
     import sys
     argv = sys.argv
+
+    if len(argv) < 3:
+        run_tests()
+        exit(0)
+
     assert len(argv) == 3
-    #test_features()
     P = int(argv[2])
     assert P%2 == 0 and P%3 == 0
     if argv[1] == "chomp":
@@ -234,11 +263,6 @@ if __name__=="__main__":
         x = gen_heli(1000, P//2)*4
     elif argv[1] == "glob":
         x = gen_glob(1000, P//3)*2
-    x += rand.standard_normal(x.shape) * 0.1
+    x += g_rand.standard_normal(x.shape) * 0.1
 
     test_sample(x, 1000)
-    #test_combine()
-    #B, x = test_bbm()
-    #test_prior_deriv(B, x)
-    #test_deriv(B, x)
-

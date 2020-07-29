@@ -6,8 +6,9 @@ from classify import *
 def main(argv):
     assert len(argv) == 3, "Usage: %s <data.npy> <indices.npy>"%argv[0]
     ind = np.load(argv[2])
-    B = BernoulliMixture(np.load("features.npy"), np.load("members.npy"))
     ind, x = load_features(argv[1], ind)
+    M = x.shape[1]
+    B = BernoulliMixture(np.load("features.npy"), np.load("members.npy"), M+1, None)
     P = B.categorize(x)
     z = P.argmax(1)
     np.save("categories.npy", z)

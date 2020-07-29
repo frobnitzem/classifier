@@ -2,38 +2,10 @@
 
 from bernoulli import *
 from pathlib import Path
+from multiprocessing import Pool
 
 #import cupy as cp
 #rand = cp.random
-
-class Category:
-    def __init__(self, Mj=None, N=None, M=None):
-        if Mj is None:
-            assert M is not None
-            assert N is None
-            self.Mj = np.zeros(M, np.int)
-            self.N = 0
-        else:
-            assert N is not None
-            self.Mj = np.array(Mj, np.int)
-            self.N = N
-
-    def append(self, x):
-        self.Mj += x
-        self.N += 1
-    def concat(self, x):
-        self.Mj += x.sum(0)
-        self.N += len(x)
-
-    def __add__(L, R):
-        return Category(L.Mj+R.Mj, L.N+R.N)
-
-    def ldist(L, R, N=None, K=None): # log(P[different cat] / P[same cat])
-        if N is None:
-            N = L.N+R.N
-        if K is None:
-            K = 1
-        return calc_Qxy(L.Mj, L.N, R.Mj, R.N, N, K)
 
 def hamming(x):
     N = x.shape[0]
@@ -139,7 +111,7 @@ def bootstrap(x, Nguess):
 def sample(B, x, Niter):
     # sample burn-in starting from best model
     for i in range(Niter):
-        cat = B.classify(x)
+        cat = B.sample_k(x)
         BBM = mk_BBMr(x, cat)
         B = BBM.sampleBernoulliMixture()
     print(B.logprior(True)) # inter-category distances
@@ -147,51 +119,121 @@ def sample(B, x, Niter):
 
     return B, BBM
 
+# run nchains replicas of gen_sample over x
+# f : x, BBM -> a
+# accum : *a -> a -> ()
+def accum_sample(x, nchains, f, accum, *args, seed=None):
+    seq = SeedSequence(seed)
+    with Pool(nchains) as p:
+        ans = p.map(run_sample, [(s, x, f, accum)+tuple(args) for s in seq.spawn(nchains)])
+    for a in ans[1:]:
+        accum(ans[0], a)
+    return ans[0]
+
+def run_sample(pack):
+    s, x, f, accum, *args = pack
+    ans = None
+    for s in gen_sample(x, *args, seed=s):
+        if ans is None:
+            ans = f(x, s)
+        else:
+            accum(ans, f(x, s))
+    return ans
+
+def gen_sample(x, samples, skip=10, toss=500, seed=None):
+    rand = default_rng(seed)
+    BBM = BBMr(x.copy(), rand)
+    acc = 0
+    for S in range(1, samples+1):
+        ok = BBM.morph()
+        acc += ok
+        BBM.recategorize()
+        if S % (skip*10) == 0:
+            print("Yielding sample %d"%(S/skip))
+        if S > toss and S % skip == 0:
+            yield BBM
+
+    print("%d of %d moves accepted"%(acc,S))
+
+from filelock import Timeout, FileLock
+
+class Result:
+    def __init__(self, x, BBM):
+        self.count = [0]*BBM.K
+        self.count[BBM.K-1] = 1
+        self.best = [None]*BBM.K
+
+        like = BBM.B.likelihood(BBM.x)
+        self.best[BBM.K-1] = like
+
+        # immediate outputs
+        out = Path("sz%d"%BBM.K)
+        out.mkdir(exist_ok=True)
+        lock = FileLock(out / "info.txt.lock")
+        with lock:
+            f = out / "info.txt"
+            if f.exists():
+                with open(out / "info.txt") as f:
+                    for line in f:
+                        break
+                lp = float(line.split()[-1])
+            else:
+                lp = -np.inf
+
+            if lp < like:
+                print("New best likelihood for K=%d: %e"%(BBM.K,like))
+                print("Members: %s"%str(BBM.Nk))
+                with open(out / "info.txt", "w") as f:
+                    f.write("# log-likelihood = %e\n" % like
+                            + '\n'.join("%2d %d"%(i+1,n) for i,n in enumerate(BBM.Nk))
+                            + '\n')
+                B = BBM.B
+                np.save(out / "features.npy", B.p)
+                np.save(out / "members.npy", B.c)
+
+    def extend(self, other):
+        d = len(other.count)-len(self.count)
+        if d > 0:
+            self.count += [0]*d
+            self.best += [-np.inf]*d
+        for i in range(len(other.count)):
+            self.count[i] += other.count[i]
+            if self.best[i] is None:
+                self.best[i] = other.best[i]
+            elif other.best[i] is not None \
+                    and other.best[i] > self.best[i]:
+                self.best[i] = other.best[i]
+
+def accum(ans, a):
+    ans.extend(a)
+
 def main(argv):
     best = [] # best likelihood at each n
 
-    ind, x = load_features(argv[1])
+    if argv[1] == "--skip":
+        sl = slice(None, None, int(argv[2]))
+        ind, x = load_features(argv[3], sl=sl)
+    else:
+        ind, x = load_features(argv[1])
+    print("Loaded %d x %d feature matrix"%x.shape)
     np.save("indices.npy", ind)
 
     #z = cluster(x, 10)
     #print("Created %d clusters for %d data points."%(z.max()+1, len(x)))
-
     #BBM = mk_BBMr(x, z)
-    BBM = BBMr(x)
-    acc = 0
-    for i in range(10*1000):
-        #BBM.recategorize()
-        B = BBM.sampleBernoulliMixture()
-        prob = B.likelihood(BBM.x)
 
-        z = B.classify(BBM.x)
-        y, Nk = reshuffle(BBM.x, z)
-        BBM.x[:] = y
-        BBM.recompute(Nk)
-        if len(best) < BBM.K or prob > best[BBM.K-1]:
-            if len(best) < BBM.K:
-                best.append(0)
-            best[BBM.K-1] = prob
-            print("New best likelihood: %e"%prob)
-            print("Members: %s"%str(Nk))
-            out = Path("sz%d"%BBM.K)
-            out.mkdir(exist_ok=True)
-            with open(out / "info.txt", "w") as f:
-                f.write("# log-likelihood = %e\n"%prob
-                        + '\n'.join("%2d %d"%(i+1,n) for i,n in enumerate(Nk))
-                        + '\n')
-            np.save(out / "features.npy", B.p)
-            np.save(out / "members.npy", B.c)
+    R = accum_sample(x, 8, Result, accum, 10*1000//8)
+    if False:
+      R = None
+      for BBM in gen_sample(x, 10*1000, skip=10, toss=500):
+        if R is None:
+            R = Result(x, BBM)
+        else:
+            R2 = Result(x, BBM)
+            R.extend(R)
 
-        acc += BBM.morph()
-
-        if (i+1)%1000 == 0:
-            print("Sample %d."%(i+1))
-
-    print("%d of %d moves accepted"%(acc,i+1))
-    print(BBM.Nk)
-    print(BBM.Mj)
-    del BBM
+    print("Counts: %s"%str(R.count))
+    print("Best log-likelihood: %s"%str(R.best))
 
 if __name__=="__main__":
     import sys

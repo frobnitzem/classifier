@@ -1,19 +1,28 @@
-from prob import * # imports eta
+from prob import *
+
+#rand = np.random.default_rng(seed) # np.random.Generator instance
+#uniform = rand.random # used for CPU-uniform random numbers
 
 # Mixture of independent multivariate Bernoulli distributions.
 class BernoulliMixture:
-    def __init__(self, p, c, alpha=None):
+    def __init__(self, p, c, alpha, rand):
         assert len(p.shape) == 2 and len(c.shape) == 1
         self.K = len(c)
         assert len(p) == self.K
         self.M = p.shape[1]
-        if alpha is None:
-            self.alpha = self.M+eta
-        else:
-            self.alpha = alpha
+        self.alpha = alpha
+        self.rand = rand
 
         self.p = p
         self.c = c
+
+    # Calc. 1 - Bhattacharyya similarity to all p
+    def bdist(self, v):
+        p = self.p
+        B = np.prod( np.sqrt(p*v[newaxis,:])
+                    + np.sqrt((1-p)*(1-v)[newaxis,:]),
+                    1)
+        return 1-B
 
     def logprior(self, verb=False):
         # Calculate a prior probability over categories from a
@@ -75,7 +84,7 @@ class BernoulliMixture:
         x = np.zeros((S,self.M), int)
         k = 0
         for pk, Nk in zip(self.p, N):
-            x[k:k+Nk] = Bernoulli(pk, Nk)
+            x[k:k+Nk] = Bernoulli(pk, Nk, self.rand)
             k += Nk
         return x
 
@@ -103,21 +112,77 @@ class BernoulliMixture:
         P = self.categorize(x)
         P = P.cumsum(1)
         S = len(x)
-        y = rand.random(S)[:,newaxis] > P # [0,1)
+        y = self.rand.random(S)[:,newaxis] > P # [0,1)
         return y.sum(1)
 
-# recursively partitioned BBM
-# deals with category-sorted data such that len(Nk) == K
+# Create a Bernoulli Mixture from a list of categories
+def mkBern(cat, rand, max_tries = 0):
+    Nk = np.array( [c.N for c in cat] )
+    rej = 0
+    while True:
+        mu = np.array( [c.mu(rand) for c in cat] )
+        B = BernoulliMixture(mu, rand.dirichlet(Nk+alpha), alpha, rand)
+        if rand.random() < np.exp(B.logprior()):
+            break
+        rej += 1
+        if rej == max_tries:
+            return None
+        if rej == 50 and max_tries > 50:
+            print("Rejecting lots of samples.")
+    if rej >= 50 and max_tries > 50:
+        print("Done. %d rejected samples"%rej)
+
+    return B
+
+class Category:
+    def __init__(self, Mj=None, N=None, M=None):
+        if Mj is None:
+            assert M is not None
+            assert N is None
+            self.Mj = np.zeros(M, np.int)
+            self.N = 0
+        else:
+            assert N is not None
+            self.Mj = np.array(Mj, np.int)
+            self.N = N
+
+    def mu(self, rand): # sample mu from the default dist'n
+        return randBeta(self.Mj+1, self.N-self.Mj+1, rand)
+
+    def append(self, x):
+        self.Mj += x
+        self.N += 1
+    def concat(self, x):
+        self.Mj += x.sum(0)
+        self.N += len(x)
+
+    def __add__(L, R):
+        return Category(L.Mj+R.Mj, L.N+R.N)
+
+    def ldist(L, R, N=None, K=None): # log(P[different cat] / P[same cat])
+        if N is None:
+            N = L.N+R.N
+        if K is None:
+            K = 1
+        return calc_Qxy(L.Mj, L.N, R.Mj, R.N, N, K)
+
+def bdist(u, v):
+    return 1 - np.prod( np.sqrt(u*v) + np.sqrt((1-u)*(1-v)) )
+
+# Recursively partitioned BBM.
+# Deals with category-sorted data such that len(Nk) == K
 # and len(x) == sum(Nk)
 class BBMr:
-    def __init__(self, x, Nk=None, verb=False):
+    def __init__(self, x, rand, Nk=None, verb=False):
         if Nk is None: # one category
             Nk = np.array([len(x)])
         self.x = x
+        self.rand = rand
         self.S = x.shape[0]
         self.M = x.shape[1]
         self.verb = verb
 
+        self.alpha = self.M+1
         self.recompute(Nk)
 
     # Recompute handy sufficient-statistics based
@@ -125,7 +190,7 @@ class BBMr:
     def recompute(self, Nk):
         assert self.S == np.sum(Nk)
 
-        self.Nk = Nk
+        self.Nk = np.array(Nk) # also copies
         self.K = len(Nk)
 
         # Sufficient statistics for P(theta | xz),
@@ -135,6 +200,8 @@ class BBMr:
         self.Mj = np.zeros((self.K, self.M), int)
         for k, x in enumerate(self.loop()):
             self.Mj[k] = np.sum(x, 0)
+
+        self.B = sampleBernoulliMixture(self.Nk, self.Mj, self.alpha, self.rand)
 
     # Return a view into the local x
     def get(self, k):
@@ -148,24 +215,6 @@ class BBMr:
             yield self.x[n:n+nk]
             n += nk
 
-    # sample a Bernoulli Mixture distribution from x and k
-    # K is the number of categories (should be k.max()+1)
-    def sampleBernoulliMixture(self, max_tries = -1):
-        alpha = self.M + eta
-        rej = 0
-        while True:
-            B = BernoulliMixture(randBeta(self.Mj+1, self.Nk[:,newaxis]-self.Mj+1), rand.dirichlet(self.Nk+alpha), alpha)
-            if rand.uniform() < np.exp(B.logprior()):
-                break
-            rej += 1
-            if rej == max_tries:
-                return None
-            if rej == 50 and max_tries < 50:
-                print("Rejecting lots of samples.")
-        if rej >= 50:
-            print("Done. %d rejected samples"%rej)
-        return B
-
     ## TODO: create a maximum-likelihood Bernoulli mixture
     #def maxBernoulliMixture(x, k, K):
 
@@ -174,28 +223,74 @@ class BBMr:
     # | |(_)| | |_(/_   \__(_| |  | (_)
     #
     # The Monte Carlo trial moves below return True on success
-    # or False on failure.  They modify the curren structure
+    # or False on failure.  They modify the current structure
     # in-place.
 
     # Perform recategorization move by sampling a Bernoulli mixture
     # and returning a new BBMr with new alliances.
-    def recategorize(self, max_tries=-1):
-        B = self.sampleBernoulliMixture(max_tries)
+    def recategorize(self):
+        z = self.B.sample_k(self.x)
+        y, Nk = reshuffle(self.x, z)
+        assert len(z) == self.S
+        assert Nk.sum() == self.S
+
+        Mj = calc_Mj(y, Nk)
+        B = sampleBernoulliMixture(Nk, Mj, self.alpha, self.rand, 50)
         if B is None:
             return False
-        z = B.classify(self.x)
-
-        y, Nk = reshuffle(self.x, z)
-
         self.x[:] = y
-        self.recompute(Nk)
+        self.B = B
+        self.Nk = Nk
+        self.Mj = Mj
+        self.K = len(Nk)
         return True
+
+    def accept_split(self, k, L, R, split_freq, beta, Qsum):
+        if L.N == 0 or R.N == 0:
+            return False
+        muL = L.mu(self.rand)
+        muR = R.mu(self.rand)
+        DL = self.B.bdist(muL)
+        DL[k] = 1.0
+        DR = self.B.bdist(muR)
+        DR[k] = 1.0
+        Dk = self.B.bdist(self.B.p[k])
+        Dk[k] = 1.0
+
+        lp = split_prefactor(L.Mj, L.N, R.Mj, R.N, self.S, self.K, split_freq, beta, Qsum)
+        lp += np.log(DL).sum() + np.log(DR).sum() - np.log(Dk).sum() \
+            + np.log(bdist(muL, muR))
+        if not metropolis(lp, self.rand):
+            return None
+        return muL, muR
+
+    def accept_join(self, u, v, split_freq, beta, Qsum):
+        L = Category(self.Mj[u], self.Nk[u])
+        R = Category(self.Mj[v], self.Nk[v])
+
+        mu = (L+R).mu(self.rand)
+        DL = self.B.bdist(self.B.p[u])
+        DL[u] = 1.0
+        DL[v] = 1.0
+        DR = self.B.bdist(self.B.p[v]) # count the u-v distance once
+        DR[v] = 1.0
+
+        Dk = self.B.bdist(mu)
+        Dk[u] = 1.0
+        Dk[v] = 1.0
+
+        lp = split_prefactor(L.Mj, L.N, R.Mj, R.N, self.S, self.K-1, split_freq, beta, Qsum)
+        lp += np.log(DL).sum() + np.log(DR).sum() - np.log(Dk).sum()
+        if not metropolis(-lp, self.rand):
+            return None
+        return mu
 
     # attempt a split or combine
     def morph(self, split_freq=0.5, beta=0.9):
+        uniform = self.rand.random
         if self.K == 1 or uniform() < split_freq:
             Q = self.split_choice()
-            k, j = choose(Q)
+            k, j = choose(Q, self.rand)
             return self.split(k, j, split_freq, beta, np.sum(Q))
 
         # prob of choosing this join is (1-split_freq)*2/K*(K-1)
@@ -214,17 +309,16 @@ class BBMr:
     def combine(self, u, v, split_freq, beta, Qsum):
         u, v = min(u,v), max(u,v)
 
-        if not accept_join(self.Mj[u], self.Nk[u],
-                           self.Mj[v], self.Nk[v],
-                           self.S, self.K-1, split_freq, beta, Qsum):
+        mu = self.accept_join(u, v, split_freq, beta, Qsum)
+        if mu is None:
             return False
         if self.verb:
             print("Combined categories %d and %d - %d"%(u,v,self.K-1))
-        self.last = ("join", u, v)
-        self.join(u, v)
+        self.join(u, v, mu)
         return True
 
-    def join(self, u, v):
+    # Combine categories u and v, with mu representing the resulting category
+    def join(self, u, v, mu):
         u, v = min(u,v), max(u,v)
         # Divide into 4 logical categories:
         # ----                    ----
@@ -252,23 +346,24 @@ class BBMr:
             self.x[end2[u+1]:end2[u+1+nl]] = tmp[:end[v-1]]
 
             # swap Mj counts
-            tmp = self.Mj[v].copy()
-            self.Mj[v] = self.Mj[u+1]
-            self.Mj[u+1] = tmp
+            #tmp = self.Mj[v].copy()
+            #self.Mj[v] = self.Mj[u+1]
+            #self.Mj[u+1] = tmp
 
-            self.Nk = np.array(Nk)
-            v = u+1
+            #self.Nk = np.array(Nk)
+            #v = u+1
 
-        # only have to shift Nk, Mj
-        Nk = self.Nk.tolist()
-        nv = Nk.pop(v)
-        Nk[u] += nv
-        self.Nk = np.array(Nk)
+        # only have to shift Nk, Mj, B.p
         self.K -= 1
+        self.Nk[u] += self.Nk[v]
+        self.Nk = del_row(self.Nk, v)
         self.Mj[u] += self.Mj[v]
-        for i in range(u+1, self.K):
-            self.Mj[i] = self.Mj[i+1]
-        self.Mj = self.Mj[:-1]
+        self.Mj = del_row(self.Mj, v)
+
+        p = del_row(self.B.p, v)
+        p[u] = mu
+        c = self.rand.dirichlet(self.Nk+self.alpha)
+        self.B = BernoulliMixture(p, c, self.alpha, self.rand)
 
     # attempt a split move
     # pacc = prob. of generating the reverse(combination)
@@ -282,8 +377,8 @@ class BBMr:
             assert self.Mj[k,j] != self.Nk[k]
             assert self.Mj[k,j] != 0
         while NR == 0 or NR == self.Nk[k]:
-            pR = beta*x[:,j] + (1-beta)*(1-x[:,j]) # p or q, depending on bit j
-            z = rand.random(pR.shape) < pR # sub-categorization
+            pR = beta*x[:,j] + (1-beta)*(1-x[:,j])
+            z = self.rand.random(pR.shape) < pR # sub-categorization
             z = z.astype(np.int)
             NR = np.sum(z)
 
@@ -291,9 +386,13 @@ class BBMr:
         NRj = np.dot(z, x)
         NLj = self.Mj[k] - NRj # dot(1-z, x) = Mj[k]-NRj
 
-        if not accept_split(NLj, NL, NRj, NR,
-                            self.S, self.K, split_freq, beta, Qsum):
+        L = Category(NLj, NL)
+        R = Category(NRj, NR)
+        ret = self.accept_split(k, L, R, split_freq, beta, Qsum)
+        if ret is None:
             return False
+        muL, muR = ret
+
         self.last = ("split", k)
 
         if self.verb:
@@ -307,6 +406,8 @@ class BBMr:
         self.K += 1
         self.Nk = split_row(self.Nk, k, NL, NR)
         self.Mj = split_row(self.Mj, k, NLj, NRj)
+        self.B = BernoulliMixture(split_row(self.B.p, k, muL, muR),
+                                  self.rand.dirichlet(self.Nk+self.alpha), self.alpha, self.rand)
 
         return True
 
@@ -314,6 +415,36 @@ class BBMr:
     # returns a matrix of un-normalized probabilities.
     def split_choice(self):
         return ( (self.Nk[:,newaxis] != self.Mj)*(self.Mj != 0) ).astype(float)
+
+def calc_Mj(x, Nk):
+    K = len(Nk)
+    M = x.shape[1]
+    Mj = np.zeros((K, M), int)
+    n = 0
+    for k, nk in enumerate(Nk):
+        Mj[k] = x[n:n+nk].sum(0)
+        n += nk
+    return Mj
+
+# sample a Bernoulli Mixture distribution from x and k
+# K is the number of categories (should be k.max()+1)
+def sampleBernoulliMixture(Nk, Mj, alpha, rand, max_tries=-1):
+    K = len(Nk)
+    assert K == Mj.shape[0]
+    rej = 0
+    while True:
+        B = BernoulliMixture(randBeta(Mj+1, Nk[:,newaxis]-Mj+1, rand),
+                             rand.dirichlet(Nk+alpha), alpha, rand)
+        if metropolis(B.logprior(), rand):
+            break
+        rej += 1
+        if rej == max_tries:
+            return None
+        if rej == 50 and max_tries < 50:
+            print("Rejecting lots of samples.")
+    if rej >= 50:
+        print("Done. %d rejected samples"%rej)
+    return B
 
 # permute data according to z and return BBMr class
 def mk_BBMr(x, z):
