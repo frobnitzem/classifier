@@ -254,15 +254,19 @@ if __name__=="__main__":
         run_tests()
         exit(0)
 
-    assert len(argv) == 3
+    assert len(argv) >= 3
     P = int(argv[2])
     assert P%2 == 0 and P%3 == 0
+    N = 1000
+    if len(argv) == 4:
+        N = int(argv[3])
+
     if argv[1] == "chomp":
-        x = gen_chomp(1000, P//2)*4
+        x = gen_chomp(N, P//2)*4
     elif argv[1] == "heli":
-        x = gen_heli(1000, P//2)*4
+        x = gen_heli(N, P//2)*4
     elif argv[1] == "glob":
-        x = gen_glob(1000, P//3)*2
+        x = gen_glob(N, P//3)*2
     x += g_rand.standard_normal(x.shape) * 0.1
 
     test_sample(x, 1000)

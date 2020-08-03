@@ -63,29 +63,6 @@ class BBMs:
             Nk[cat] += 1
             Mj[cat] += x
 
-def plot(x, Nk, P):
-    K = P.shape[1]
-    if K == 1:
-        return
-    poles = np.array([[0.0, 0.0], [1.0, 0.0], [0.5, 0.5*3.0**0.5]])
-    import matplotlib.pyplot as plt
-    from mpl_toolkits.mplot3d import Axes3D
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-
-    if K > 3:
-        xy = np.dot(P[:,:3], poles)
-    elif K == 2:
-        xy = np.dot(P, poles[:2])
-    else:
-        xy = np.dot(P, poles)
-    xy += 0.07*(rand.random(xy.shape)-0.5) # jitter
-    n = 0
-    for m, c in zip(Nk, ['b', 'r', 'k']):
-        ax.scatter(xy[n:n+m,0], xy[n:n+m,1], c=c, alpha=0.03)
-        n += m
-    plt.show()
-
 def bootstrap(x, Nguess):
     # Jump-start an unsupervised model based on 100 trials.
     S = x.shape[0]

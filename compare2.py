@@ -1,9 +1,12 @@
+#!/usr/bin/env python3
+
 #import numpy as np
 from bernoulli import *
 
 class FeaturePair:
     def __init__(self, ind1, ind2, x1, x2):
-        print(x1.shape, x2.shape)
+        M = len(x1)
+        assert len(x2) == M
         s1 = set(ind1)
         s2 = set(ind2)
 
