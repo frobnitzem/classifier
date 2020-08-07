@@ -5,9 +5,14 @@ This project implements a Monte Carlo sampler for the above model.
 When fed data on pair-contacts, it will automatically
 identify prototypical shapes.
 
-Lots of helper programs are included to analyze protein conformations.
-
 All the source files in this distribution were written by David M. Rogers.
+If you make use of this code, we ask you to read and cite the following
+reference:
+
+David M. Rogers, Protein Conformational States: A First Principles Bayesian Method.
+*submitted*, 2020. [arXiv:2008.02353](https://arxiv.org/abs/2008.02353).
+
+Lots of helper programs are included to analyze protein conformations.
 
 They are being made available under the terms of the GNU GPL version 3.
 A copy of that license must accompany this work and all
