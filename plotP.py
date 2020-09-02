@@ -3,35 +3,39 @@
 import numpy as np
 import matplotlib.pyplot as plt
 #from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.colors as mcolors
 
-pi = np.pi
 
-# poles for plotting similarity plot
-def poles(n):
-    if n == 2: # degenerate situations
-        return np.identity(2)
-
-    th = np.arange(n)*2*pi/n
-    poles = np.zeros((n,2))
-    poles[:,0] = np.cos(th)
-    poles[:,1] = np.sin(th)
-    return poles
-
-def plot(P, out):
+def plot(P, poles, out):
     fig = plt.figure(figsize=(4,3))
     ax = fig.add_subplot(111)
+    xy = np.dot(P, poles)
 
-    xy = np.dot(P, poles(P.shape[1]))
+    colors = mcolors.TABLEAU_COLORS
+    names = list(colors)
+    assert P.shape[1] <= len(names), "Not enough colors to color ea. point!"
+    names = names[:P.shape[1]]
 
-    ax.scatter(xy[:,0], xy[:,1],
-               c='b', alpha=min(1.0, 150/len(P)))
+    z = P.argmax(1)
+    for k, c in enumerate(names):
+        m = (z == k)
+        ax.scatter(xy[z == k,0], xy[z == k,1],
+                   c=colors[c], alpha=min(1.0, 150/m.sum()))
+
+    #plt.plot(x[:,0], x[:,1], 'ko', fillstyle='none', markersize=18)
+    for i,p in enumerate(poles):
+        plt.text(p[0], p[1], str(i+1), color="black", fontsize=12,
+                 horizontalalignment='center', verticalalignment='center')
+
     plt.savefig(out)
     plt.show()
 
 def main(argv):
-    assert len(argv) == 3, "Usage: %s <probs.npy> <probs.pdf>"%argv[0]
+    assert len(argv) == 4, "Usage: %s <probs.npy> <points.txt> <probs.pdf>"%argv[0]
 
-    plot(np.load(argv[1]), argv[2])
+    P = np.load(argv[1])
+    poles = np.fromfile(argv[2], sep=" ").reshape((P.shape[1],3))[:,1:]
+    plot(P, poles, argv[3])
 
 if __name__ == "__main__":
     import sys

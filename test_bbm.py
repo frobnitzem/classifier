@@ -44,7 +44,10 @@ def gen_glob(N, P):
                110:17,
                146:19
              }
-    x0 = read_rule(glob_sz[P]) # sphere of radius 1
+    if P == 1:
+        x0 = np.zeros((1,3))
+    else:
+        x0 = read_rule(glob_sz[P]) # sphere of radius 1
     x1 = x0.copy()
     x1[:,2] += 2.1
     x2 = x0.copy()
