@@ -68,17 +68,38 @@ def dEi(dU, x):
 def bdist(u):
     return np.prod( np.sqrt(u[:,newaxis]*u[newaxis,:]) + np.sqrt((1-u)[:,newaxis]*(1-u)[newaxis,:]), -1 )
 
+# check whether 0, 1, ..., n-1 all form a single
+# connected component
+def is_cc(bi, bj, n):
+    visited = set()
+    todo = set([0])
+    while len(todo) > 0:
+        k = todo.pop()
+        visited.add(k)
+        # append all nbrs of k to todo
+        for i,j in zip(bi,bj):
+            if i == k:
+                v = j
+            elif j == k:
+                v = i
+            else:
+                continue
+            if v in visited:
+                continue
+            todo.add(v)
+
+    return len(visited) == n
+
 def find_bonds(u):
     n = len(u)
     B = bdist(u)
     B -= np.identity(n)
 
     #print(B)
-    sk = set()
     bi = []
     bj = []
     k = []
-    while len(sk) < n:
+    while not is_cc(bi, bj, n):
         ij = np.argmax(B)
         i = ij // n
         j = ij % n
@@ -88,8 +109,6 @@ def find_bonds(u):
         k.append(B[i,j])
         B[i,j] = 0
         B[j,i] = 0
-        sk.add(i)
-        sk.add(j)
 
     bi = np.array(bi, int)
     bj = np.array(bj, int)
@@ -146,7 +165,7 @@ def main(argv):
         for i,p in enumerate(x):
             plt.text(p[0], p[1], str(i+1), color="black", fontsize=12,
                      horizontalalignment='center', verticalalignment='center')
-        plt.show()
+        #plt.show()
     except ImportError:
         pass
 

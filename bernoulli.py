@@ -57,8 +57,11 @@ class BernoulliMixture:
 
     # Log-likelihood of a sample, x, given this model
     def likelihood(self, x):
-        P = np.dot(np.prod( self.p*x[:,newaxis,:] + (1-self.p)*(1-x[:,newaxis,:]) , 2 ), self.c)
-        lP = np.sum(np.log(P)) + self.logprior() + cat_prior(len(x), self.alpha, self.M, self.K) \
+        P1 = np.log(self.p*x[:,newaxis,:] + (1-self.p)*(1-x[:,newaxis,:])).sum(2) + np.log(self.c) # S x K
+        Pm = P1.max(1) # max cat. term for each sample
+        P1 -= Pm[:,newaxis]
+        Pm += np.log(np.exp(P1).sum(1))
+        lP = Pm.sum() + self.logprior() + cat_prior(len(x), self.alpha, self.M, self.K) \
                + (self.alpha-1)*np.log(self.c).sum()
         return lP
 
@@ -233,6 +236,8 @@ class BBMr:
         y, Nk = reshuffle(self.x, z)
         assert len(z) == self.S
         assert Nk.sum() == self.S
+        if len(Nk) != self.K:
+            return False
 
         Mj = calc_Mj(y, Nk)
         B = sampleBernoulliMixture(Nk, Mj, self.alpha, self.rand, 50)
