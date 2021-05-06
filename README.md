@@ -1,6 +1,8 @@
 Multivariate Bernoulli Mixture Model Sampler
 ============================================
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.4122299.svg)](https://doi.org/10.5281/zenodo.4122299)
+
 This project implements a Monte Carlo sampler for the above model.
 When fed data on pair-contacts, it will automatically
 identify prototypical shapes.

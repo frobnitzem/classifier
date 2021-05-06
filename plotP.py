@@ -22,7 +22,7 @@ def plot(P, poles, out):
     for k, c in enumerate(names):
         m = (z == k)
         ax.scatter(xy[z == k,0], xy[z == k,1],
-                   c=colors[c], alpha=min(1.0, 150/m.sum()))
+                   c=colors[c], alpha=min(1.0, 150.0/min(2e4,m.sum())))
 
     #plt.plot(x[:,0], x[:,1], 'ko', fillstyle='none', markersize=18)
     for i,p in enumerate(poles):
@@ -30,7 +30,7 @@ def plot(P, poles, out):
                  horizontalalignment='center', verticalalignment='center')
 
     plt.savefig(out)
-    plt.show()
+    #plt.show()
 
 def main(argv):
     assert len(argv) == 4, "Usage: %s <probs.npy> <points.txt> <probs.pdf>"%argv[0]

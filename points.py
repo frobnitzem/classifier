@@ -70,34 +70,27 @@ def dEi(dU, x):
 def bdist(u):
     return np.prod( np.sqrt(u[:,newaxis]*u[newaxis,:]) + np.sqrt((1-u)[:,newaxis]*(1-u)[newaxis,:]), -1 )
 
-def find_subset(sk, i):
-    for k,s in enumerate(sk):
-        if i in s:
-            return k
-    return None
+# check whether 0, 1, ..., n-1 all form a single
+# connected component
+def is_cc(bi, bj, n):
+    visited = set()
+    todo = set([0])
+    while len(todo) > 0:
+        k = todo.pop()
+        visited.add(k)
+        # append all nbrs of k to todo
+        for i,j in zip(bi,bj):
+            if i == k:
+                v = j
+            elif j == k:
+                v = i
+            else:
+                continue
+            if v in visited:
+                continue
+            todo.add(v)
 
-# Modify sets to add an edge, i-j
-# this is an inefficient union-find.
-def add_sets(sk, i, j):
-    si = find_subset(sk, i)
-    sj = find_subset(sk, j)
-    if si is None: # if either si,sj is known, it's i
-        i,j = j,i
-        si,sj = sj,si
-    if si == sj: # already in the same set
-        if si is None:
-            sk.append(set([i,j]))
-        return len(sk[0])
-    # si is known
-    if sj is None:
-        sk[si].add( j )
-        return len(sk[0])
-    # two separate sets
-    if si > sj: # let si be the smaller one
-        i,j = j,i
-        si,sj = sj,si
-    sk[si] |= sk.pop(sj)
-    return len(sk[0])
+    return len(visited) == n
 
 def find_bonds(u):
     n = len(u)
@@ -105,12 +98,10 @@ def find_bonds(u):
     B -= np.identity(n)
 
     #print(B)
-    sk = []
     bi = []
     bj = []
-    k  = []
-    order = [] # order of found points
-    while True:
+    k = []
+    while not is_cc(bi, bj, n):
         ij = np.argmax(B)
         i = ij // n
         j = ij % n
@@ -120,8 +111,6 @@ def find_bonds(u):
         k.append(B[i,j])
         B[i,j] = 0
         B[j,i] = 0
-        if add_sets(sk, i, j) == n:
-            break
 
     bi = np.array(bi, int)
     bj = np.array(bj, int)
@@ -199,7 +188,7 @@ def main(argv):
         for i,p in enumerate(x):
             plt.text(p[0], p[1], str(i+1), color="black", fontsize=12,
                      horizontalalignment='center', verticalalignment='center')
-        plt.show()
+        #plt.show()
     except ImportError:
         pass
 

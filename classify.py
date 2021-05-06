@@ -199,7 +199,7 @@ def main(argv):
     #print("Created %d clusters for %d data points."%(z.max()+1, len(x)))
     #BBM = mk_BBMr(x, z)
 
-    R = accum_sample(x, 8, Result, accum, 10*1000//8)
+    R = accum_sample(x, 16, Result, accum, 1500)
     if False:
       R = None
       for BBM in gen_sample(x, 10*1000, skip=10, toss=500):
