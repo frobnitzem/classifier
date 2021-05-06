@@ -74,19 +74,21 @@ def plt_pairs(rmsd, Nk, ax):
 def plt_hist(x, Nk, ax):
     Nk = np.array(Nk)
     img = ax.imshow(x, cmap='bone_r')
-    for p in Nk[:-1].cumsum():
-        ax.axhline(p, linewidth=0.75, color='w')
-        ax.axvline(p, linewidth=0.75, color='w')
+    #for p in Nk[:-1].cumsum():
+    #    ax.axhline(p, linewidth=0.75, color='w')
+    #    ax.axvline(p, linewidth=0.75, color='w')
     plt.colorbar(img)
     ax.set_xticks([])
     ax.set_yticks([])
 
-fig, ax = plt.subplots(1, 2, figsize=(6.5,4))
+#fig, ax = plt.subplots(1, 2, figsize=(6.5,4))
+fig, ax = plt.subplots(1, 1, figsize=(6.5,4))
 x, Nk = permute(rmsd, z, K)
 
-plt_pairs(x, Nk, ax[0])
-ax[0].set_xlim(1.5, 5.5)
-plt_hist(x, Nk, ax[1])
+#plt_pairs(x, Nk, ax[0])
+#ax[0].set_xlim(1.5, 5.5)
+#plt_hist(x, Nk, ax[1])
+plt_hist(x, Nk, ax)
 plt.savefig("rmsd.png")
 plt.show()
 

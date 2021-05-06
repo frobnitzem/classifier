@@ -13,7 +13,9 @@ def plot(P, poles, out):
 
     colors = mcolors.TABLEAU_COLORS
     names = list(colors)
-    assert P.shape[1] <= len(names), "Not enough colors to color ea. point!"
+    while P.shape[1] > len(names):
+        names = names+names
+    #assert P.shape[1] <= len(names), "Not enough colors to color ea. point!"
     names = names[:P.shape[1]]
 
     z = P.argmax(1)

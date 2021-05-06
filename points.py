@@ -2,12 +2,14 @@
 
 from classify import *
 from scipy import optimize
+rand = np.random
 
 pi = np.pi
 
 # poles for plotting similarity plot
-def poles(n):
-    th = np.arange(n)*2*pi/n
+def poles(perm):
+    n = len(perm)
+    th = np.array(perm)*2.0*pi/n
     poles = np.zeros((n,2))
     poles[:,0] = np.cos(th)
     poles[:,1] = np.sin(th)
@@ -68,17 +70,47 @@ def dEi(dU, x):
 def bdist(u):
     return np.prod( np.sqrt(u[:,newaxis]*u[newaxis,:]) + np.sqrt((1-u)[:,newaxis]*(1-u)[newaxis,:]), -1 )
 
+def find_subset(sk, i):
+    for k,s in enumerate(sk):
+        if i in s:
+            return k
+    return None
+
+# Modify sets to add an edge, i-j
+# this is an inefficient union-find.
+def add_sets(sk, i, j):
+    si = find_subset(sk, i)
+    sj = find_subset(sk, j)
+    if si is None: # if either si,sj is known, it's i
+        i,j = j,i
+        si,sj = sj,si
+    if si == sj: # already in the same set
+        if si is None:
+            sk.append(set([i,j]))
+        return len(sk[0])
+    # si is known
+    if sj is None:
+        sk[si].add( j )
+        return len(sk[0])
+    # two separate sets
+    if si > sj: # let si be the smaller one
+        i,j = j,i
+        si,sj = sj,si
+    sk[si] |= sk.pop(sj)
+    return len(sk[0])
+
 def find_bonds(u):
     n = len(u)
     B = bdist(u)
     B -= np.identity(n)
 
     #print(B)
-    sk = set()
+    sk = []
     bi = []
     bj = []
-    k = []
-    while len(sk) < n:
+    k  = []
+    order = [] # order of found points
+    while True:
         ij = np.argmax(B)
         i = ij // n
         j = ij % n
@@ -88,8 +120,8 @@ def find_bonds(u):
         k.append(B[i,j])
         B[i,j] = 0
         B[j,i] = 0
-        sk.add(i)
-        sk.add(j)
+        if add_sets(sk, i, j) == n:
+            break
 
     bi = np.array(bi, int)
     bj = np.array(bj, int)
@@ -115,13 +147,8 @@ def validate_deriv(x, bi, bj, k):
     dEi(dE2, x)
     err(dE1, dE2)
 
-def main(argv):
-    assert len(argv) == 3, "Usage: %s <features.npy> <points.txt>"%argv[0]
-    u = np.load(argv[1])
-    bi, bj, k = find_bonds(u)
-
-    x = poles(len(u))*2**0.5
-    validate_deriv(x, bi, bj, k)
+def get_cfg(perm, bi, bj, k):
+    x = poles(perm)
 
     def E(y):
         z = y.reshape(x.shape)
@@ -133,13 +160,39 @@ def main(argv):
         dEi(J, z)
         return J.reshape(-1)
 
+    #validate_deriv(x, bi, bj, k)
     ret = optimize.minimize(E, x, jac=dE, method='BFGS')
-    x = ret.x.reshape(x.shape)
-    print(x)
-    with open(argv[2], "w") as f:
+    return ret.x.reshape(x.shape), ret.fun
+
+def write_x(name, x):
+    with open(name, "w") as f:
         for i,p in enumerate(x):
             f.write("%d %f %f\n"%(i+1,p[0],p[1]))
 
+def main(argv):
+    circ = False
+    if len(argv) > 3 and argv[1] == "--circ":
+        circ = True
+        del argv[1]
+    assert len(argv) == 3, "Usage: %s <features.npy> <points.txt>"%argv[0]
+    u = np.load(argv[1])
+
+    if circ:
+        x = poles(np.random.permutation(len(u)))
+        write_x(argv[2], x)
+        return 0
+
+    bi, bj, k = find_bonds(u)
+
+    xmin, Emin = get_cfg(range(len(u)), bi, bj, k)
+    for i in range(10):
+        x, E = get_cfg(np.random.permutation(len(u)), bi, bj, k)
+        print(E)
+        if E < Emin:
+            xmin, Emin = x, E
+    print(xmin)
+
+    write_x(argv[2], x)
     try:
         import pylab as plt
         plt.plot(x[:,0], x[:,1], 'ko', fillstyle='none', markersize=18)
