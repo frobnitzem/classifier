@@ -185,13 +185,34 @@ def accum(ans, a):
     ans.extend(a)
 
 def main(argv):
+    Usage = f"Usage {argv[0]} [--skip n] [--chains n] features.npy"
+
+    skip = 1
+    chains = 16
+    ndx = None
+    while len(argv) > 2:
+        if argv[1] == "--skip":
+            skip = int(argv[2])
+            del argv[1:3]
+        elif argv[1] == "--chains":
+            chains = int(argv[2])
+            del argv[1:3]
+        elif argv[1] == "--index":
+            ndx = np.load(argv[2])
+            del argv[1:3]
+        else:
+            break
+    assert skip > 0, Usage
+    assert chains > 0, Usage
+    assert len(argv) == 2, Usage
+
     best = [] # best likelihood at each n
 
-    if argv[1] == "--skip":
-        sl = slice(None, None, int(argv[2]))
-        ind, x = load_features(argv[3], sl=sl)
+    if skip != 1:
+        sl = slice(None, None, skip)
+        ind, x = load_features(argv[1], ndx, sl=sl)
     else:
-        ind, x = load_features(argv[1])
+        ind, x = load_features(argv[1], ndx)
     print("Loaded %d x %d feature matrix"%x.shape)
     np.save("indices.npy", ind)
 
@@ -199,7 +220,7 @@ def main(argv):
     #print("Created %d clusters for %d data points."%(z.max()+1, len(x)))
     #BBM = mk_BBMr(x, z)
 
-    R = accum_sample(x, 16, Result, accum, 1500)
+    R = accum_sample(x, chains, Result, accum, 1500)
     if False:
       R = None
       for BBM in gen_sample(x, 10*1000, skip=10, toss=500):
